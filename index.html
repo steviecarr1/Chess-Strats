@@ -1198,7 +1198,9 @@
           <label for="eloSelect">Bot strength</label>
           <select id="eloSelect">
             <option value="400">400 — Beginner</option>
+            <option value="600">600 — Advanced beginner</option>
             <option value="800">800 — Casual</option>
+            <option value="1000">1000 — Improver</option>
             <option value="1200" selected>1200 — Club</option>
             <option value="1600">1600 — Strong club</option>
             <option value="2000">2000 — Expert</option>
@@ -1690,7 +1692,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16e · isDefended fix + scan wording';
+const BUILD = '2026-09-16f · 600 and 1000 ELO tiers';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -2124,7 +2126,9 @@ function eloConfig(elo){
 
 function eloConfigRaw(elo){
   if (elo <= 400)  return { depth:1, quiesce:false, errorRate:0.42, errorBand:[200, 900], wobble:50 };
+  if (elo <= 600)  return { depth:1, quiesce:true,  errorRate:0.35, errorBand:[160, 700], wobble:42 };
   if (elo <= 800)  return { depth:2, quiesce:true,  errorRate:0.28, errorBand:[120, 500], wobble:35 };
+  if (elo <= 1000) return { depth:2, quiesce:true,  errorRate:0.22, errorBand:[100, 400], wobble:28 };
   if (elo <= 1200) return { depth:2, quiesce:true,  errorRate:0.16, errorBand:[80, 300],  wobble:22 };
   if (elo <= 1600) return { depth:3, quiesce:true,  errorRate:0.08, errorBand:[50, 180],  wobble:12 };
   if (elo <= 2000) return { depth:3, quiesce:true,  errorRate:0.03, errorBand:[30, 100],  wobble:6  };
@@ -4953,7 +4957,9 @@ refreshSoundUI();
      mateBlind   chance of walking past a forced mate it could have played  */
 const ENGINE_TIERS = {
   400:  { depth:3,  multipv:14, tolerance:120, blunderRate:0.35,  sloppyRate:0.55, maxHang:Infinity, mateBlind:0.55, uciElo:null },
+  600:  { depth:3,  multipv:13, tolerance:110, blunderRate:0.27,  sloppyRate:0.53, maxHang:700,      mateBlind:0.45, uciElo:null },
   800:  { depth:4,  multipv:12, tolerance:100, blunderRate:0.20,  sloppyRate:0.50, maxHang:500,      mateBlind:0.35, uciElo:null },
+  1000: { depth:4,  multipv:11, tolerance:90,  blunderRate:0.14,  sloppyRate:0.45, maxHang:400,      mateBlind:0.25, uciElo:null },
   1200: { depth:5,  multipv:10, tolerance:80,  blunderRate:0.10,  sloppyRate:0.40, maxHang:320,      mateBlind:0.15, uciElo:null },
   1600: { depth:7,  multipv:6,  tolerance:60,  blunderRate:0.05,  sloppyRate:0.28, maxHang:150,      mateBlind:0.05, uciElo:1600 },
   2000: { depth:9,  multipv:4,  tolerance:40,  blunderRate:0.015, sloppyRate:0.15, maxHang:100,      mateBlind:0,    uciElo:2000 },
