@@ -1690,7 +1690,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16d · isDefended fix';
+const BUILD = '2026-09-16e · isDefended fix + scan wording';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -6767,27 +6767,45 @@ async function finishScan(claimedNothing){
   const res = document.getElementById('scanResult');
   res.className = 'scan-result ' + (clean ? 'good' : 'bad');
 
-  let body;
-  if (claimedNothing && answer.length === 0){
-    body = '<strong>Right — nothing hanging.</strong>Knowing when the answer is "nothing" matters as much as '
-      + 'spotting the hanging rook. It is what lets you move on quickly instead of second-guessing.';
+  /* Say what happened in this position, not what could happen in general.
+     The earlier version printed all three marker meanings every time, even
+     when only one marker was on the board, and never told you outright that
+     the answer had been "nothing hanging" — it just listed what you got
+     wrong and left you to work the rest out. */
+  const sqList = (arr) => arr.slice().sort().join(', ');
+  let headline, detail;
+
+  if (answer.length === 0 && claimedNothing){
+    headline = 'Right — nothing was hanging.';
+    detail = 'Every capture available to your opponent here is either losing material for them '
+      + 'or an even trade of defended pieces. Recognising that quickly is half the skill: it is '
+      + 'what lets you move on instead of second-guessing a position that is fine.';
+  } else if (answer.length === 0){
+    headline = 'Nothing was hanging here.';
+    detail = `The answer was the "Nothing hanging" button. You flagged ${sqList(falsePos)} `
+      + (falsePos.length === 1 ? '(marked with a cross)' : '(marked with crosses)')
+      + ', but your opponent taking there either loses them material or is an even trade of '
+      + 'defended pieces. Flagging even trades is the habit to avoid — it makes you hesitant in '
+      + 'positions that are perfectly safe.';
   } else if (claimedNothing){
-    body = `<strong>Something was hanging.</strong>${answer.length} of your pieces could be taken: `
-      + answer.join(', ') + '. Marked on the board.';
+    headline = answer.length === 1 ? 'Something was hanging.' : 'Several things were hanging.';
+    detail = `You said nothing, but ${sqList(answer)} could be taken — marked in dashed orange on the board.`;
   } else if (clean){
-    body = `<strong>Clean scan.</strong>All ${answer.length} found, nothing invented, in ${secs.toFixed(1)}s.`;
+    headline = 'Clean scan.';
+    detail = `All ${answer.length} found${falsePos.length ? '' : ', nothing invented'}, in ${secs.toFixed(1)}s.`;
   } else {
+    headline = found.length ? 'Partly right.' : 'Not quite.';
     const bits = [];
-    if (found.length) bits.push(`found ${found.length}`);
-    if (missed.length) bits.push(`missed ${missed.join(', ')}`);
-    if (falsePos.length) bits.push(`flagged ${falsePos.join(', ')} which is safe or an even trade`);
-    body = `<strong>Not quite.</strong>You ${bits.join(', ')}. Green is a hit, dashed orange is one you `
-      + 'walked past, a cross is a false alarm.';
+    if (found.length) bits.push(`found ${sqList(found)} (green)`);
+    if (missed.length) bits.push(`walked past ${sqList(missed)} (dashed orange)`);
+    if (falsePos.length) bits.push(`flagged ${sqList(falsePos)} (cross) — safe, or an even trade`);
+    detail = 'You ' + bits.join('; ') + '.';
   }
+
   if (secs > SCAN_TARGET_SECONDS && clean){
-    body += ` Took ${secs.toFixed(1)}s though — the aim is under ${SCAN_TARGET_SECONDS}, because a slow scan is one you skip under pressure.`;
+    detail += ` Took ${secs.toFixed(1)}s though — the aim is under ${SCAN_TARGET_SECONDS}s, because a slow scan is one you skip when you're tired.`;
   }
-  res.innerHTML = body;
+  res.innerHTML = `<strong>${headline}</strong>${detail}`;
   res.style.display = '';
 
   document.getElementById('scanNoneBtn').disabled = true;
