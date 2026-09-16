@@ -793,6 +793,48 @@
     display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;
   }
   /* ---- Endgame drills ---- */
+  .scan-timer{
+    text-align:center;margin-top:10px;font-family:'Inter',sans-serif;
+    font-size:1.5rem;letter-spacing:.06em;color:var(--gold,#c9a227);
+  }
+  .scan-timer.over{ color:#d97757; }
+  .scan-question{
+    font-size:.86rem;line-height:1.55;padding:10px 13px;margin:14px 0;
+    border-left:3px solid var(--gold,#c9a227);
+    background:rgba(201,162,39,.08);border-radius:4px;
+  }
+  .scan-result{
+    margin-top:13px;padding:11px 14px;border-radius:4px;
+    font-size:.85rem;line-height:1.6;border-left:3px solid;
+  }
+  .scan-result.good{ border-color:#5c9678;background:rgba(92,150,120,.12); }
+  .scan-result.bad{ border-color:#b1543a;background:rgba(177,84,58,.12); }
+  .scan-result strong{ display:block;margin-bottom:3px; }
+  .scan-stats{ margin-top:13px;font-size:.8rem;color:var(--ivory-dim);line-height:1.7; }
+  .sq.scan-picked::after{
+    content:'';position:absolute;inset:0;
+    border:3px solid var(--gold,#c9a227);border-radius:3px;pointer-events:none;
+  }
+  .sq.scan-hit::after{
+    content:'';position:absolute;inset:0;
+    border:3px solid #5c9678;border-radius:3px;pointer-events:none;
+  }
+  .sq.scan-miss::after{
+    content:'';position:absolute;inset:0;
+    border:3px dashed #d97757;border-radius:3px;pointer-events:none;
+  }
+  .sq.scan-false::after{
+    content:'\00d7';position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    color:#b1543a;font-size:2rem;pointer-events:none;opacity:.75;
+  }
+  .op-btns{ display:flex;gap:7px;flex-shrink:0; }
+  .op-btns .btn{ padding:7px 12px;font-size:.78rem; }
+  .practice-modal.test-mode .practice-head h3::after{
+    content:'TEST';margin-left:9px;font-size:.62rem;letter-spacing:.1em;
+    padding:2px 6px;border-radius:3px;vertical-align:middle;
+    background:rgba(201,162,39,.18);color:var(--gold,#c9a227);
+  }
   .drill-toggle{
     display:flex;align-items:center;gap:8px;margin-top:14px;
     font-size:.82rem;color:var(--ivory-dim);cursor:pointer;
@@ -1130,6 +1172,7 @@
     <button class="tab-btn" data-view="analysis">Analysis</button>
     <button class="tab-btn" data-view="puzzles">Puzzles</button>
     <button class="tab-btn" data-view="drills">Drills</button>
+    <button class="tab-btn" data-view="scan">Scan</button>
     <button class="tab-btn" data-view="progress">Progress</button>
     <button class="tab-btn" data-view="history">History</button>
     <button class="tab-btn" data-view="handbook">Handbook</button>
@@ -1258,6 +1301,37 @@
     </div>
   </section>
 
+  <!-- SCAN VIEW -->
+  <section class="view" id="view-scan">
+    <div class="play-grid">
+      <div>
+        <div class="board-frame">
+          <div class="board" id="scanBoard"></div>
+        </div>
+        <div class="scan-timer" id="scanTimer">—</div>
+      </div>
+      <div class="panel">
+        <h2>Blunder check</h2>
+        <p style="font-size:.85rem;color:var(--ivory-dim);margin-top:0;">
+          Your reviews keep saying the same thing: you left a piece capturable. That is a
+          scanning habit, not a knowledge gap, so it gets trained directly.
+        </p>
+        <div class="scan-question" id="scanQuestion">
+          Press Start. You'll get a position with you to move — tap every one of
+          <strong>your</strong> pieces the opponent could take right now for free or for profit.
+        </div>
+        <div class="status-line" id="scanStatus">Ready.</div>
+        <div class="btn-row">
+          <button class="btn" id="scanStartBtn">Start</button>
+          <button class="btn secondary" id="scanNoneBtn" disabled>Nothing hanging</button>
+          <button class="btn secondary" id="scanSubmitBtn" disabled>Check answer</button>
+        </div>
+        <div class="scan-result" id="scanResult" style="display:none;"></div>
+        <div class="scan-stats" id="scanStats"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- PROGRESS VIEW -->
   <section class="view" id="view-progress">
     <div id="progressContent"></div>
@@ -1360,7 +1434,7 @@
 
 <!-- PRACTICE OVERLAY -->
 <div class="practice-overlay" id="practiceOverlay">
-  <div class="practice-modal">
+  <div class="practice-modal" id="practiceModal">
     <div class="practice-head">
       <div>
         <h3 id="practiceTitle"></h3>
@@ -1616,7 +1690,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16b · difficulty + endgame drills';
+const BUILD = '2026-09-16c · drills + opening tests + blunder scan';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -2432,6 +2506,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (view === 'history') renderHistoryView();
     if (view === 'puzzles') refreshPuzzlesView();
     if (view === 'drills') renderDrillList();
+    if (view === 'scan') initScanView();
   });
 });
 
@@ -4180,16 +4255,23 @@ function renderOpeningList(){
       <div class="op-head">
         <div>
           <h4>${escapeHtml(o.name)}</h4>
-          <span class="op-eco">${o.eco} · practise as ${o.side === 'w' ? 'White' : 'Black'}</span>
+          <span class="op-eco">${o.eco} · practise as ${o.side === 'w' ? 'White' : 'Black'}${
+            openingScores[o.id] ? ` · best ${openingScores[o.id].best}% from memory` : ''}</span>
         </div>
-        <button class="btn op-play" data-op="${o.id}">▶ Practice</button>
+        <div class="op-btns">
+          <button class="btn secondary op-play" data-op="${o.id}">▶ Learn</button>
+          <button class="btn op-test" data-op="${o.id}">Test me</button>
+        </div>
       </div>
       <div class="opening-moves">${escapeHtml(formatLine(o.sans))}</div>
       <p>${escapeHtml(o.desc)}</p>
     </div>`).join('');
 
   listEl.querySelectorAll('.op-play').forEach(btn => {
-    btn.addEventListener('click', () => openPractice(btn.dataset.op));
+    btn.addEventListener('click', () => openPractice(btn.dataset.op, 'guided'));
+  });
+  listEl.querySelectorAll('.op-test').forEach(btn => {
+    btn.addEventListener('click', () => openPractice(btn.dataset.op, 'test'));
   });
 }
 
@@ -4206,9 +4288,13 @@ const practice = {
   finished: false
 };
 
-function openPractice(opId){
+function openPractice(opId, mode){
   const o = OPENINGS_VALID.find(x => x.id === opId);
   if (!o) return;
+  practice.mode = mode === 'test' ? 'test' : 'guided';
+  practice.score = { correct:0, missed:0, revealed:0, asked:0 };
+  practice.wrongThisMove = 0;
+  practice.revealedThisMove = false;
   practice.opening = o;
   practice.game = new Chess();
   practice.ply = 0;
@@ -4226,7 +4312,9 @@ function openPractice(opId){
   document.getElementById('practiceOverlay').classList.add('open');
   document.getElementById('practiceTitle').textContent = o.name;
   document.getElementById('practiceSub').textContent =
-    o.eco + ' · you play ' + (o.side === 'w' ? 'White' : 'Black') + ' · ' + o.sans.length + ' moves';
+    o.eco + ' · you play ' + (o.side === 'w' ? 'White' : 'Black') + ' · ' + o.sans.length + ' moves'
+    + (practice.mode === 'test' ? ' · TEST' : '');
+  document.getElementById('practiceModal').classList.toggle('test-mode', practice.mode === 'test');
   document.body.style.overflow = 'hidden';
 
   // If the opponent moves first in this line, play their move immediately.
@@ -4245,7 +4333,10 @@ function stepOpponentIfNeeded(){
   const o = practice.opening;
   if (!o) return;
   if (practice.ply >= o.moves.length){
-    if (!practice.finished) sound.win();
+    if (!practice.finished){
+      sound.win();
+      if (practice.mode === 'test') saveOpeningScore(o);
+    }
     practice.finished = true;
     renderPractice();
     return;
@@ -4288,11 +4379,21 @@ function renderPractice(){
   const marks = {};
   if (practice.justMoved && practice.lastMove) marks['move-pulse'] = practice.lastMove.to;
   if (practice.wrongSq) marks['puzzle-wrong'] = practice.wrongSq;
-  if (!practice.finished && !practice.thinking){
+  /* Guided mode paints the move onto the board. Test mode must not — showing
+     you the move and then asking you to play it trains recognition, and
+     recognition is not the skill you need over a real board. The only time a
+     square is shown in test mode is after you have asked for a hint. */
+  const showGuide = !practice.finished && !practice.thinking &&
+    (practice.mode !== 'test' || practice.showHint);
+  if (showGuide){
     const nextMv = o.moves[practice.ply];
     if (nextMv){
-      marks['guide-from'] = nextMv.from;
-      marks['guide-to'] = nextMv.to;
+      if (practice.mode === 'test' && practice.showHint === 'piece'){
+        marks['guide-from'] = nextMv.from;
+      } else {
+        marks['guide-from'] = nextMv.from;
+        marks['guide-to'] = nextMv.to;
+      }
     }
   }
 
@@ -4318,26 +4419,45 @@ function renderPractice(){
 
   if (practice.finished){
     promptEl.className = 'practice-prompt done';
-    promptEl.innerHTML = oppNote + `<strong>Line complete — nicely done.</strong>${escapeHtml(o.desc)}`;
+    if (practice.mode === 'test'){
+      promptEl.innerHTML = oppNote + testScorecard(o);
+    } else {
+      promptEl.innerHTML = oppNote + `<strong>Line complete — nicely done.</strong>${escapeHtml(o.desc)}`;
+    }
   } else if (practice.thinking){
     promptEl.className = 'practice-prompt thinking';
     promptEl.innerHTML = `<strong>Opponent is replying…</strong>Watch which piece moves.`;
   } else {
     const next = o.moves[practice.ply];
-    const note = describePracticeMove(practice.game.fen(), next, true);
     const moveNo = Math.floor(practice.ply / 2) + 1;
     promptEl.className = 'practice-prompt';
-    promptEl.innerHTML = oppNote
-      + `<strong>Move ${moveNo}${next.color === 'w' ? '.' : '...'} — ${escapeHtml(next.san)}</strong>`
-      + `<span class="instruction">${escapeHtml(note.instruction)}</span>`
-      + `<span class="why">${escapeHtml(note.why)}</span>`;
+    if (practice.mode === 'test'){
+      /* No move name, no explanation, nothing to copy. The whole prompt is
+         the question. */
+      const hintLine = practice.showHint === 'piece'
+        ? '<span class="why">Hint: the piece to move is marked. Which square?</span>'
+        : (practice.showHint === 'full'
+            ? `<span class="why">The move is ${escapeHtml(next.san)} — play it to carry on.</span>`
+            : '<span class="why">No prompts in test mode. Hint costs you the point for this move.</span>');
+      promptEl.innerHTML = oppNote
+        + `<strong>Move ${moveNo}${next.color === 'w' ? '.' : '...'} — your move.</strong>`
+        + `<span class="instruction">Play the book move for the ${escapeHtml(o.name)}.</span>`
+        + hintLine;
+    } else {
+      const note = describePracticeMove(practice.game.fen(), next, true);
+      promptEl.innerHTML = oppNote
+        + `<strong>Move ${moveNo}${next.color === 'w' ? '.' : '...'} — ${escapeHtml(next.san)}</strong>`
+        + `<span class="instruction">${escapeHtml(note.instruction)}</span>`
+        + `<span class="why">${escapeHtml(note.why)}</span>`;
+    }
   }
 
   const mlEl = document.getElementById('practiceMoves');
   mlEl.innerHTML = o.sans.map((san, i) => {
     const cls = i < practice.ply ? 'done' : (i === practice.ply ? 'next' : '');
     const num = i % 2 === 0 ? `<span class="movenum">${i/2 + 1}.</span>` : '';
-    const shown = (i < practice.ply || practice.showAll) ? escapeHtml(san) : '•••';
+    const revealOk = practice.mode !== 'test' || practice.finished;
+    const shown = (i < practice.ply || (practice.showAll && revealOk)) ? escapeHtml(san) : '•••';
     return num + `<span class="pmv ${cls}">${shown}</span>`;
   }).join('');
 
@@ -4385,6 +4505,14 @@ function tryPracticeMove(from, to){
   practice.targets = [];
 
   if (from === expected.from && to === expected.to){
+    if (practice.mode === 'test'){
+      practice.score.asked++;
+      if (practice.revealedThisMove) practice.score.revealed++;
+      else if (practice.wrongThisMove) practice.score.missed++;
+      else practice.score.correct++;
+      practice.wrongThisMove = 0;
+      practice.revealedThisMove = false;
+    }
     practice.game.move(expected.san);
     soundForMove(expected, practice.game);
     practice.lastMove = { from: expected.from, to: expected.to };
@@ -4401,11 +4529,24 @@ function tryPracticeMove(from, to){
 
   // Wrong move — show it, don't play it.
   practice.wrongSq = to;
+  practice.wrongThisMove = (practice.wrongThisMove || 0) + 1;
   sound.wrong();
+
+  /* Two misses and the answer appears. Grinding away at a move you can't
+     recall isn't recall practice, it's guessing — and the mark for this
+     move is already lost, so there's nothing left to protect. */
+  if (practice.mode === 'test' && practice.wrongThisMove >= 2){
+    practice.showHint = 'full';
+    practice.revealedThisMove = true;
+  }
   renderPractice();
   const promptEl = document.getElementById('practicePrompt');
   promptEl.className = 'practice-prompt wrong';
-  promptEl.innerHTML = `<strong>Not this line.</strong>That's a legal move, but the ${escapeHtml(o.name)} continues differently here. Try again, or tap Hint.`;
+  if (practice.mode === 'test' && practice.revealedThisMove){
+    promptEl.innerHTML = `<strong>Not this line.</strong>The move is ${escapeHtml(expected.san)}. Play it and carry on — this one is marked as missed.`;
+  } else {
+    promptEl.innerHTML = `<strong>Not this line.</strong>That's a legal move, but the ${escapeHtml(o.name)} continues differently here. Try again, or tap Hint.`;
+  }
 }
 
 function initOpeningUI(){
@@ -4432,16 +4573,97 @@ document.getElementById('practiceHintBtn').addEventListener('click', () => {
   const o = practice.opening;
   if (!o || practice.finished || practice.thinking) return;
   const mv = o.moves[practice.ply];
+  if (practice.mode === 'test'){
+    /* Graded: first press marks the piece, second gives the move. Either way
+       the point for this move is gone — a hint you can spend for free is not
+       a test. */
+    if (!practice.showHint){
+      practice.showHint = 'piece';
+      practice.revealedThisMove = true;
+      renderPractice();
+      return;
+    }
+    practice.showHint = 'full';
+    practice.revealedThisMove = true;
+  }
   practice.selected = mv.from;
   practice.targets = practice.game.moves({ square: mv.from, verbose: true });
   renderPractice();
 });
 document.getElementById('practiceRestartBtn').addEventListener('click', () => {
-  if (practice.opening) openPractice(practice.opening.id);
+  if (practice.opening) openPractice(practice.opening.id, practice.mode);
 });
 document.getElementById('practiceRevealBtn').addEventListener('click', () => {
+  if (practice.mode === 'test' && !practice.finished){
+    practice.showAll = false;
+    const el = document.getElementById('practicePrompt');
+    if (el){
+      el.className = 'practice-prompt wrong';
+      el.innerHTML = '<strong>Not in test mode.</strong>Showing the whole line here would end the test. Use Hint if you\'re stuck — it costs one move, not the run.';
+    }
+    return;
+  }
   practice.showAll = !practice.showAll;
   renderPractice();
+});
+
+/* The scorecard is the reason test mode exists: a number you can compare
+   against the same opening next week. */
+function testScorecard(o){
+  const sc = practice.score || { correct:0, missed:0, revealed:0, asked:0 };
+  const pct = sc.asked ? Math.round((sc.correct / sc.asked) * 100) : 0;
+  const prev = openingScores[o.id];
+  let verdict;
+  if (pct === 100) verdict = 'Clean run — every move from memory.';
+  else if (pct >= 70) verdict = 'Mostly there. The gaps are worth one more run.';
+  else if (pct >= 35) verdict = 'Half-known. This is the point where guided practice helps more than another test.';
+  else verdict = 'Not in memory yet. Run the Learn mode a couple of times first, then come back.';
+
+  let compare = '';
+  if (prev && typeof prev.best === 'number'){
+    if (pct > prev.best) compare = ` Your best on this line was ${prev.best}% — that's an improvement.`;
+    else if (pct === prev.best) compare = ` Same as your best on this line.`;
+    else compare = ` Your best on this line is ${prev.best}%.`;
+  }
+
+  return `<strong>Test complete — ${pct}% from memory.</strong>`
+    + `<span class="instruction">${sc.correct} first time · ${sc.missed} after a wrong try · ${sc.revealed} revealed · ${sc.asked} moves.</span>`
+    + `<span class="why">${escapeHtml(verdict + compare)}</span>`;
+}
+
+let openingScores = {};
+
+async function loadOpeningScores(){
+  openingScores = {};
+  try{
+    const listing = await store.list('opscore:');
+    for (const key of (listing ? listing.keys : [])){
+      try{
+        const item = await store.get(key);
+        if (item){ const r = JSON.parse(item.value); openingScores[r.id] = r; }
+      } catch(e){}
+    }
+  } catch(e){}
+}
+
+async function saveOpeningScore(o){
+  const sc = practice.score || { correct:0, asked:0 };
+  if (!sc.asked) return;
+  const pct = Math.round((sc.correct / sc.asked) * 100);
+  const prev = openingScores[o.id] || { id:o.id, runs:0, best:0 };
+  const rec = {
+    id: o.id, name: o.name,
+    runs: prev.runs + 1,
+    best: Math.max(prev.best || 0, pct),
+    last: pct,
+    lastAt: Date.now()
+  };
+  openingScores[o.id] = rec;
+  try{ await store.set('opscore:' + o.id, JSON.stringify(rec)); }
+  catch(e){ console.error('save opening score failed', e); }
+}
+loadOpeningScores().then(() => {
+  if (document.getElementById('opList') && OPENINGS_VALID.length) renderOpeningList();
 });
 
 initOpeningUI();
@@ -5357,6 +5579,34 @@ function runSelfTests(){
     return bad.length ? bad.join(', ') : true;
   });
 
+  check('scan: hanging detector finds a free piece', () => {
+    /* White queen on d5 is attacked by the black pawn on c6 and defended by
+       nothing. If the scan trainer can't see this, it teaches nothing. */
+    const g = new Chess();
+    if (!g.load('rnbqkbnr/pp1ppppp/2p5/3Q4/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1'))
+      return 'test FEN would not load';
+    const ans = hangingToOpponent(g);
+    if (ans === null) return 'detector returned null on a legal position';
+    return ans.indexOf('d5') !== -1 ? true : 'missed the hanging queen on d5 (got: ' + ans.join(',') + ')';
+  });
+
+  check('scan: an even, defended trade is not flagged', () => {
+    // Starting position: nothing can be taken at all.
+    const g = new Chess();
+    const ans = hangingToOpponent(g);
+    if (ans === null) return 'detector returned null on the start position';
+    return ans.length === 0 ? true : 'flagged ' + ans.join(',') + ' in the starting position';
+  });
+
+  check('openings: test mode hides the answer', () => {
+    /* The whole point of test mode. If the guide marks ever come back with
+       no hint spent, it is guided practice wearing a different label. */
+    const src = renderPractice.toString();
+    if (!/practice\.mode !== 'test' \|\| practice\.showHint/.test(src))
+      return 'guide squares are no longer gated on test mode';
+    return true;
+  });
+
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
     `color:${passed === results.length ? '#5c9678' : '#b1543a'};font-weight:bold`);
@@ -6260,6 +6510,272 @@ document.getElementById('drillRestartBtn').addEventListener('click', () => {
   if (drillState) startDrill(drillState.drill.id);
 });
 document.getElementById('drillHintToggle').addEventListener('change', () => renderDrillBoard());
+
+/* ============================================================
+   BLUNDER CHECK ("Scan")
+
+   Every review you've run says some version of "you left a piece
+   capturable N times". That is not a knowledge gap — you already
+   know a hanging rook is bad — it is a missing habit: looking at
+   what the opponent can take, every move, before you commit.
+
+   Habits are trained by repetition under mild time pressure, so
+   this shows a position and asks one question with a clock on it.
+   Positions come from your own saved games where possible, since
+   those are the positions you actually get into.
+   ============================================================ */
+
+const SCAN_TARGET_SECONDS = 10;
+
+let scanState = null;   // { game, answer:[sq], picked:Set, started, over }
+let scanTimerId = null;
+let scanStats = { runs:0, clean:0, totalSecs:0 };
+
+/* What can the opponent take right now, profitably?
+
+   Two cases count. A capture that wins material outright (taking
+   something worth more than the capturer), and a capture of an
+   undefended piece of equal value — free is free. Everything else
+   is a trade, not a blunder, and marking those would teach you to
+   flinch at normal chess. */
+function hangingToOpponent(chessObj){
+  const me = chessObj.turn();
+  const them = me === 'w' ? 'b' : 'w';
+  const parts = chessObj.fen().split(' ');
+  parts[1] = them;
+  parts[3] = '-';
+  let probe;
+  try{ probe = new Chess(parts.join(' ')); }
+  catch(e){ return null; }
+  if (!probe || !probe.fen) return null;
+
+  const out = {};
+  for (const m of probe.moves({ verbose: true })){
+    if (!m.captured) continue;
+    const gain = VALUES[m.captured] - VALUES[m.piece];
+    if (gain >= 100){ out[m.to] = true; continue; }
+    if (gain >= 0 && !isDefended(probe, m.to, me)) out[m.to] = true;
+  }
+  return Object.keys(out);
+}
+
+/* Prefer positions out of your own games. Falling back to a random walk is
+   fine for the drill, but your own middlegames are the ones worth scanning. */
+async function scanPickPosition(){
+  try{
+    const games = await loadAllGames();
+    const usable = games.filter(g => g.pgn);
+    for (let tries = 0; tries < 12 && usable.length; tries++){
+      const g = usable[Math.floor(Math.random() * usable.length)];
+      const temp = new Chess();
+      if (!temp.load_pgn(g.pgn)) continue;
+      const hist = temp.history({ verbose: true });
+      if (hist.length < 12) continue;
+      const stop = 8 + Math.floor(Math.random() * (hist.length - 9));
+      const replay = new Chess();
+      for (let i = 0; i < stop; i++) replay.move(hist[i].san);
+      if (replay.game_over() || replay.in_check()) continue;
+      const ans = hangingToOpponent(replay);
+      if (ans === null) continue;
+      // Keep roughly a third of positions clean, so "nothing hanging" stays a
+      // real answer rather than a button you never press.
+      if (!ans.length && Math.random() > 0.33) continue;
+      return { game: replay, answer: ans, source: 'your game' };
+    }
+  } catch(e){ /* fall through */ }
+
+  for (let tries = 0; tries < 40; tries++){
+    const g = new Chess();
+    const plies = 14 + Math.floor(Math.random() * 14);
+    let ok = true;
+    for (let i = 0; i < plies; i++){
+      const moves = g.moves();
+      if (!moves.length){ ok = false; break; }
+      g.move(moves[Math.floor(Math.random() * moves.length)]);
+    }
+    if (!ok || g.game_over() || g.in_check()) continue;
+    const ans = hangingToOpponent(g);
+    if (ans === null) continue;
+    if (!ans.length && Math.random() > 0.33) continue;
+    return { game: g, answer: ans, source: 'generated' };
+  }
+  return null;
+}
+
+async function loadScanStats(){
+  try{
+    const item = await store.get('scanstats');
+    if (item) scanStats = JSON.parse(item.value);
+  } catch(e){ /* first run */ }
+}
+
+async function saveScanStats(){
+  try{ await store.set('scanstats', JSON.stringify(scanStats)); }
+  catch(e){}
+}
+
+function renderScanStats(){
+  const el = document.getElementById('scanStats');
+  if (!el) return;
+  if (!scanStats.runs){ el.textContent = ''; return; }
+  const avg = (scanStats.totalSecs / scanStats.runs).toFixed(1);
+  const pct = Math.round((scanStats.clean / scanStats.runs) * 100);
+  el.innerHTML = `<strong>${scanStats.runs}</strong> positions scanned · `
+    + `<strong>${pct}%</strong> spotted cleanly · average <strong>${avg}s</strong>`
+    + (avg > SCAN_TARGET_SECONDS
+        ? `<br>Target is under ${SCAN_TARGET_SECONDS}s. Over a real game, a scan this slow is one you'll skip when you're tired.`
+        : '');
+}
+
+async function initScanView(){
+  await loadScanStats();
+  renderScanStats();
+  if (!scanState) renderScanBoard();
+}
+
+function renderScanBoard(){
+  const board = document.getElementById('scanBoard');
+  if (!board) return;
+  if (!scanState){
+    renderChessBoard(board, new Chess(), { interactive: false });
+    return;
+  }
+  const marks = {};
+  const picked = Array.from(scanState.picked);
+  const opts = {
+    flipped: scanState.game.turn() === 'b',
+    interactive: !scanState.over,
+    onSquareClick: onScanSquareClick,
+    marks: marks
+  };
+  renderChessBoard(board, scanState.game, opts);
+
+  // Squares are painted after the fact so several can carry a class at once.
+  board.querySelectorAll('.sq').forEach(div => {
+    const sq = div.dataset.square;
+    if (!scanState.over){
+      if (picked.indexOf(sq) !== -1) div.classList.add('scan-picked');
+      return;
+    }
+    const isAnswer = scanState.answer.indexOf(sq) !== -1;
+    const wasPicked = picked.indexOf(sq) !== -1;
+    if (isAnswer && wasPicked) div.classList.add('scan-hit');
+    else if (isAnswer) div.classList.add('scan-miss');
+    else if (wasPicked) div.classList.add('scan-false');
+  });
+}
+
+function onScanSquareClick(sq){
+  if (!scanState || scanState.over) return;
+  const piece = scanState.game.get(sq);
+  const me = scanState.game.turn();
+  if (!piece || piece.color !== me) return;   // only your own pieces can hang
+  if (scanState.picked.has(sq)) scanState.picked.delete(sq);
+  else scanState.picked.add(sq);
+  document.getElementById('scanSubmitBtn').disabled = scanState.picked.size === 0;
+  renderScanBoard();
+}
+
+function scanTick(){
+  const el = document.getElementById('scanTimer');
+  if (!el || !scanState || scanState.over) return;
+  const secs = (Date.now() - scanState.started) / 1000;
+  el.textContent = secs.toFixed(1) + 's';
+  el.classList.toggle('over', secs > SCAN_TARGET_SECONDS);
+}
+
+async function startScan(){
+  const statusEl = document.getElementById('scanStatus');
+  statusEl.textContent = 'Finding a position…';
+  document.getElementById('scanResult').style.display = 'none';
+  document.getElementById('scanStartBtn').disabled = true;
+
+  const pos = await scanPickPosition();
+  document.getElementById('scanStartBtn').disabled = false;
+  if (!pos){
+    statusEl.textContent = 'Could not build a position — try again.';
+    return;
+  }
+
+  scanState = {
+    game: pos.game,
+    answer: pos.answer,
+    picked: new Set(),
+    started: Date.now(),
+    over: false,
+    source: pos.source
+  };
+  const me = pos.game.turn() === 'w' ? 'White' : 'Black';
+  document.getElementById('scanQuestion').innerHTML =
+    `<strong>You are ${me}, and it is your move.</strong> Tap every one of your pieces the `
+    + `opponent could take right now for free or for profit. If nothing is hanging, say so.`;
+  statusEl.textContent = `Position from ${pos.source === 'your game' ? 'one of your own games' : 'a generated position'}. Clock is running.`;
+  document.getElementById('scanNoneBtn').disabled = false;
+  document.getElementById('scanSubmitBtn').disabled = true;
+  document.getElementById('scanStartBtn').textContent = 'New position';
+
+  clearInterval(scanTimerId);
+  scanTimerId = setInterval(scanTick, 100);
+  renderScanBoard();
+  scanTick();
+}
+
+async function finishScan(claimedNothing){
+  if (!scanState || scanState.over) return;
+  scanState.over = true;
+  clearInterval(scanTimerId);
+  const secs = (Date.now() - scanState.started) / 1000;
+  document.getElementById('scanTimer').textContent = secs.toFixed(1) + 's';
+
+  const picked = Array.from(scanState.picked);
+  const answer = scanState.answer;
+  const found = answer.filter(sq => picked.indexOf(sq) !== -1);
+  const missed = answer.filter(sq => picked.indexOf(sq) === -1);
+  const falsePos = picked.filter(sq => answer.indexOf(sq) === -1);
+  const clean = missed.length === 0 && falsePos.length === 0 &&
+    (claimedNothing ? answer.length === 0 : true);
+
+  const res = document.getElementById('scanResult');
+  res.className = 'scan-result ' + (clean ? 'good' : 'bad');
+
+  let body;
+  if (claimedNothing && answer.length === 0){
+    body = '<strong>Right — nothing hanging.</strong>Knowing when the answer is "nothing" matters as much as '
+      + 'spotting the hanging rook. It is what lets you move on quickly instead of second-guessing.';
+  } else if (claimedNothing){
+    body = `<strong>Something was hanging.</strong>${answer.length} of your pieces could be taken: `
+      + answer.join(', ') + '. Marked on the board.';
+  } else if (clean){
+    body = `<strong>Clean scan.</strong>All ${answer.length} found, nothing invented, in ${secs.toFixed(1)}s.`;
+  } else {
+    const bits = [];
+    if (found.length) bits.push(`found ${found.length}`);
+    if (missed.length) bits.push(`missed ${missed.join(', ')}`);
+    if (falsePos.length) bits.push(`flagged ${falsePos.join(', ')} which is safe or an even trade`);
+    body = `<strong>Not quite.</strong>You ${bits.join(', ')}. Green is a hit, dashed orange is one you `
+      + 'walked past, a cross is a false alarm.';
+  }
+  if (secs > SCAN_TARGET_SECONDS && clean){
+    body += ` Took ${secs.toFixed(1)}s though — the aim is under ${SCAN_TARGET_SECONDS}, because a slow scan is one you skip under pressure.`;
+  }
+  res.innerHTML = body;
+  res.style.display = '';
+
+  document.getElementById('scanNoneBtn').disabled = true;
+  document.getElementById('scanSubmitBtn').disabled = true;
+  document.getElementById('scanStatus').textContent = 'Press New position to go again.';
+
+  scanStats.runs++;
+  if (clean) scanStats.clean++;
+  scanStats.totalSecs += secs;
+  await saveScanStats();
+  renderScanStats();
+  renderScanBoard();
+}
+
+document.getElementById('scanStartBtn').addEventListener('click', startScan);
+document.getElementById('scanNoneBtn').addEventListener('click', () => finishScan(true));
+document.getElementById('scanSubmitBtn').addEventListener('click', () => finishScan(false));
 
 </script>
 </body>
