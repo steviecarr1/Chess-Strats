@@ -1679,6 +1679,7 @@
           <button class="btn secondary" id="exportBtn">Export games</button>
           <button class="btn secondary" id="wipeBtn">Delete all data</button>
         </div>
+        <div class="status-line" id="exportMsg" style="margin-top:10px;"></div>
       </div>
     </div>
   </section>
@@ -1956,7 +1957,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16i · severity colours on the counters';
+const BUILD = '2026-09-16j · export download fix';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -3877,13 +3878,49 @@ document.getElementById('clearSettingsBtn').addEventListener('click', () => {
   refreshSettingsView();
 });
 
+/* Downloading a generated file has three requirements that are easy to miss,
+   and the old version missed two of them:
+
+   1. The anchor must be IN THE DOCUMENT when it is clicked. A detached
+      element is ignored outright by Firefox and by Chrome under some
+      settings, which is why the button appeared to do nothing at all — no
+      error, no file, no clue.
+   2. The object URL has to outlive the click, then be revoked, or the tab
+      holds the whole blob in memory for as long as it is open.
+   3. iOS Safari does not honour the `download` attribute for blob URLs. It
+      opens the JSON in a tab instead, so the user needs telling rather than
+      being left staring at a wall of text wondering what happened. */
 document.getElementById('exportBtn').addEventListener('click', async () => {
-  const games = await loadAllGames();
-  const blob = new Blob([JSON.stringify(games, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'chess-games.json';
-  a.click();
+  const msg = document.getElementById('exportMsg');
+  const say = (t) => { if (msg) msg.textContent = t; };
+  say('Gathering games…');
+
+  try{
+    const games = await loadAllGames();
+    if (!games.length){ say('Nothing to export yet — finish a game first.'); return; }
+
+    const payload = JSON.stringify(games, null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chess-games-${stamp}.json`;
+    a.style.display = 'none';
+    document.body.appendChild(a);      // the part that was missing
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    const kb = Math.max(1, Math.round(payload.length / 1024));
+    const iOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    say(iOS
+      ? `${games.length} games (${kb} KB). On iPhone this opens in a new tab rather than downloading — use the share button there to save it to Files.`
+      : `Exported ${games.length} game${games.length === 1 ? '' : 's'} (${kb} KB) as chess-games-${stamp}.json.`);
+  } catch(err){
+    say('Export failed: ' + (err && err.message ? err.message : String(err)));
+  }
 });
 
 document.getElementById('wipeBtn').addEventListener('click', async () => {
