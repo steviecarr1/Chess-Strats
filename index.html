@@ -792,6 +792,18 @@
   .acc-stats{
     display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;
   }
+  .acc-stats.stale{ opacity:.45; }
+  .stale-note{
+    margin-top:12px;padding:10px 14px;
+    border-left:3px solid #b1543a;
+    background:rgba(177,84,58,.12);
+    border-radius:4px;font-size:.82rem;line-height:1.5;
+  }
+  .stale-note strong{ display:block;color:#d97757;margin-bottom:3px; }
+  .build-stamp{
+    margin-top:18px;font-size:.7rem;letter-spacing:.04em;
+    color:var(--felt-500,#7a725c);
+  }
   .acc-stats .stat{
     background:var(--felt-950);
     border:1px solid var(--felt-700);
@@ -1170,6 +1182,17 @@
   <!-- SETTINGS VIEW -->
   <section class="view" id="view-settings">
     <div style="max-width:620px;">
+      <div class="panel" style="margin-bottom:16px;">
+        <h2>This build</h2>
+        <p style="font-size:.88rem;color:var(--ivory-dim);margin:0;">
+          Running build: <strong id="buildStamp">—</strong>
+        </p>
+        <p style="font-size:.78rem;color:var(--ivory-dim);margin:8px 0 0;">
+          If this doesn't match the build you just uploaded, your browser is showing a cached copy.
+          On iPhone: close the tab, then reopen the page — or load it once with <code>?v=2</code> on the end
+          of the address to force a fresh fetch. A stale copy will keep producing the old, wrong review numbers.
+        </p>
+      </div>
       <div class="panel">
         <h2>Game analysis backend</h2>
         <p style="font-size:.88rem;color:var(--ivory-dim);margin-top:0;">
@@ -1492,6 +1515,19 @@ let botStyle = null;   // randomised for each new game
 
 const ENGINE_TIER = 9999;
 
+/* Build stamp. Two jobs.
+
+   1. Phones cache aggressively. A review saying 97.7% for a game that ended in
+      checkmate was produced by a build from before the engine fix, still sitting
+      in Safari's cache — and nothing on screen said so. The stamp is shown in
+      Settings and in the footer so the running build is always visible.
+
+   2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
+      older is flagged in the analysis panel instead of being displayed as fact,
+      because those numbers came from code that read the wrong engine line. */
+const BUILD = '2026-09-16 · difficulty + review-version';
+const REVIEW_VERSION = 3;
+
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
    difficulty tier and to grade puzzle attempts accurately) --------- */
 
@@ -1516,21 +1552,100 @@ function loadEngine(){
         const blob = new Blob([src], { type: 'application/javascript' });
         const worker = new Worker(URL.createObjectURL(blob));
         let ready = false;
-        const pending = [];
+
+        /* ONE SEARCH AT A TIME.
+
+           UCI is a single text stream with no request ids, so there is no way
+           to tell whose `info` / `bestmove` line is whose. The old code kept a
+           list of handlers and broadcast every line to all of them, so two
+           overlapping requests both resolved off the first `bestmove` and each
+           got the other's evaluation. That is exactly how a review comes back
+           saying 97% accuracy and zero blunders for a game you were
+           checkmated in: the eval numbers belong to the wrong positions, so
+           every move-to-move difference collapses to nearly nothing.
+
+           Requests now queue. Exactly one is active, and the next is only
+           posted after the previous `bestmove` has come back. */
+        let active = null;
+        const queue = [];
+        const deferredOptions = [];
+        let dead = null; // set once the worker is considered unusable
+
+        const pump = () => {
+          if (active || !queue.length) return;
+          active = queue.shift();
+          active.start();
+        };
+
+        const poison = (err) => {
+          dead = err;
+          const victims = active ? [active].concat(queue) : queue.slice();
+          active = null;
+          queue.length = 0;
+          victims.forEach(j => j.fail(err));
+        };
 
         worker.onmessage = (e) => {
           const line = typeof e.data === 'string' ? e.data : '';
-          if (line === 'uciok'){
-            worker.postMessage('isready');
-          } else if (line === 'readyok' && !ready){
-            ready = true;
-            resolve(api);
-          } else {
-            pending.forEach(fn => fn(line));
+          if (line === 'uciok'){ worker.postMessage('isready'); return; }
+          if (line === 'readyok'){
+            if (!ready){ ready = true; resolve(api); }
+            return;
           }
+          if (active) active.onLine(line);
         };
-        worker.onerror = (err) => reject(new Error('Engine worker error: ' + (err.message || 'unknown')));
+        worker.onerror = (err) => {
+          const e2 = new Error('Engine worker error: ' + (err.message || 'unknown'));
+          if (!ready) reject(e2); else poison(e2);
+        };
         worker.postMessage('uci');
+
+        /* Run one search. `collect` sees every `info` line. `timeout` is a soft
+           limit: we ask the engine to stop and keep whatever it found by then,
+           which is more useful than discarding the position. */
+        const search = ({ fen, options = [], go, collect, timeout = 20000 }) => {
+          if (dead) return Promise.reject(dead);
+          return new Promise((res, rej) => {
+            let settled = false, stopped = false, timer = null, backstop = null;
+            const job = {
+              fail(err){
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer); clearTimeout(backstop);
+                rej(err);
+              },
+              onLine(line){
+                if (line.startsWith('info')){ collect(line); return; }
+                if (!line.startsWith('bestmove')) return;
+                clearTimeout(timer); clearTimeout(backstop);
+                settled = true;
+                active = null;
+                pump();
+                res({ uci: line.split(' ')[1], partial: stopped });
+              },
+              start(){
+                deferredOptions.splice(0).forEach(o => worker.postMessage('setoption name ' + o));
+                options.forEach(o => worker.postMessage('setoption name ' + o));
+                worker.postMessage('position fen ' + fen);
+                worker.postMessage(go);
+                timer = setTimeout(() => {
+                  if (settled) return;
+                  stopped = true;
+                  worker.postMessage('stop');
+                  /* `stop` normally produces a `bestmove` immediately. If it
+                     doesn't, the worker is wedged — and posting another search
+                     into it would make that search inherit this one's output,
+                     which is the bug above all over again. Refuse instead. */
+                  backstop = setTimeout(() => {
+                    if (!settled) poison(new Error('Engine stopped responding.'));
+                  }, 10000);
+                }, timeout);
+              }
+            };
+            queue.push(job);
+            pump();
+          });
+        };
 
         const api = {
           getBestMove(fen, { depth = 12, movetime } = {}){
@@ -1538,79 +1653,76 @@ function loadEngine(){
           },
 
           /* Full analysis: best move plus the engine's evaluation of the
-             position, in centipawns from the side-to-move's perspective. */
-          analyse(fen, { depth = 12, movetime } = {}){
-            return new Promise((res) => {
-              let scoreCp = null, mateIn = null, pv = null;
-              const handler = (line) => {
-                if (line.startsWith('info') && line.includes('score')){
-                  /* Only ever trust the principal variation. If a previous
-                     MultiPV search left extra lines coming back, the last one
-                     is the engine's WORST suggestion — reading that as the
-                     position's evaluation makes every move look perfect. */
-                  const mp = line.match(/multipv (\d+)/);
-                  if (mp && parseInt(mp[1], 10) !== 1) return;
-                  const cp = line.match(/score cp (-?\d+)/);
-                  const mate = line.match(/score mate (-?\d+)/);
-                  if (cp){ scoreCp = parseInt(cp[1], 10); mateIn = null; }
-                  if (mate){ mateIn = parseInt(mate[1], 10); scoreCp = null; }
-                  const pvm = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
-                  if (pvm) pv = pvm[1];
-                } else if (line.startsWith('bestmove')){
-                  const idx = pending.indexOf(handler);
-                  if (idx >= 0) pending.splice(idx, 1);
-                  const uci = line.split(' ')[1];
-                  res({
-                    bestMove: uci === '(none)' ? null : uci,
-                    scoreCp,
-                    mateIn,
-                    pv: pv || (uci === '(none)' ? null : uci)
-                  });
-                }
-              };
-              pending.push(handler);
+             position, in centipawns from the side-to-move's perspective.
+             `scoreCp` and `mateIn` are BOTH null when the engine never
+             reported a score. Callers must treat that as "unknown" — reading
+             it as 0.00 makes a position look dead level and hides real
+             swings. */
+          analyse(fen, { depth = 12, movetime, timeout } = {}){
+            let scoreCp = null, mateIn = null, pv = null;
+            return search({
+              fen,
               // Analysis must always run at full strength, single line.
-              worker.postMessage('setoption name MultiPV value 1');
-              worker.postMessage('setoption name UCI_LimitStrength value false');
-              worker.postMessage('position fen ' + fen);
-              worker.postMessage(movetime ? `go movetime ${movetime}` : `go depth ${depth}`);
-            });
+              options: ['MultiPV value 1', 'UCI_LimitStrength value false'],
+              go: movetime ? `go movetime ${movetime}` : `go depth ${depth}`,
+              timeout,
+              collect(line){
+                if (!line.includes('score')) return;
+                /* Only ever trust the principal variation. If a previous
+                   MultiPV search left extra lines coming back, the last one
+                   is the engine's WORST suggestion — reading that as the
+                   position's evaluation makes every move look perfect. */
+                const mp = line.match(/multipv (\d+)/);
+                if (mp && parseInt(mp[1], 10) !== 1) return;
+                const cp = line.match(/score cp (-?\d+)/);
+                const mate = line.match(/score mate (-?\d+)/);
+                if (cp){ scoreCp = parseInt(cp[1], 10); mateIn = null; }
+                if (mate){ mateIn = parseInt(mate[1], 10); scoreCp = null; }
+                const pvm = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+                if (pvm) pv = pvm[1];
+              }
+            }).then(({ uci, partial }) => ({
+              bestMove: uci === '(none)' ? null : uci,
+              scoreCp,
+              mateIn,
+              partial,
+              pv: pv || (uci === '(none)' ? null : uci)
+            }));
           },
 
+          /* Deferred, not posted immediately: a bare `setoption` sent while
+             another caller's search is running would change the engine under
+             it. These are flushed just before the next search starts, so they
+             still take effect ahead of whatever the setter asks for next. */
           setOption(name, value){
-            worker.postMessage(`setoption name ${name} value ${value}`);
+            deferredOptions.push(`${name} value ${value}`);
           },
 
           /* Top-N candidate moves with evaluations. This lets a style choose
              among genuinely sound moves rather than relying on the bot's own
              weaker idea of what's reasonable. */
-          analyseMulti(fen, { depth = 10, multipv = 5 } = {}){
-            return new Promise((res) => {
-              const found = {};
-              const handler = (line) => {
-                if (line.startsWith('info') && line.includes(' pv ') && line.includes('multipv')){
-                  const mp = line.match(/multipv (\d+)/);
-                  const cp = line.match(/score cp (-?\d+)/);
-                  const mate = line.match(/score mate (-?\d+)/);
-                  const pvm = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
-                  if (mp && pvm){
-                    found[parseInt(mp[1], 10)] = {
-                      uci: pvm[1],
-                      cp: cp ? parseInt(cp[1], 10) : null,
-                      mateIn: mate ? parseInt(mate[1], 10) : null
-                    };
-                  }
-                } else if (line.startsWith('bestmove')){
-                  const idx = pending.indexOf(handler);
-                  if (idx >= 0) pending.splice(idx, 1);
-                  res(Object.keys(found).sort((a,b) => a-b).map(k => found[k]));
+          analyseMulti(fen, { depth = 10, multipv = 5, timeout } = {}){
+            const found = {};
+            return search({
+              fen,
+              options: ['MultiPV value ' + multipv],
+              go: 'go depth ' + depth,
+              timeout,
+              collect(line){
+                if (!line.includes(' pv ') || !line.includes('multipv')) return;
+                const mp = line.match(/multipv (\d+)/);
+                const cp = line.match(/score cp (-?\d+)/);
+                const mate = line.match(/score mate (-?\d+)/);
+                const pvm = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+                if (mp && pvm){
+                  found[parseInt(mp[1], 10)] = {
+                    uci: pvm[1],
+                    cp: cp ? parseInt(cp[1], 10) : null,
+                    mateIn: mate ? parseInt(mate[1], 10) : null
+                  };
                 }
-              };
-              pending.push(handler);
-              worker.postMessage('setoption name MultiPV value ' + multipv);
-              worker.postMessage('position fen ' + fen);
-              worker.postMessage('go depth ' + depth);
-            });
+              }
+            }).then(() => Object.keys(found).sort((a,b) => a-b).map(k => found[k]));
           }
         };
       })
@@ -2340,6 +2452,7 @@ Keep it direct, encouraging but honest, and concrete — reference actual move n
         OUTCOME_LABEL[resolveOutcome({ resultText, playerColor })]
       );
       await updateStoredGame(gameId, {
+        reviewVersion: REVIEW_VERSION,
         analysisText: review.summary,
         annotations: review.annotations,
         accuracy: review.accuracy,
@@ -3106,8 +3219,22 @@ function buildReplayPanel(rec){
       }</span>
     </div>`;
 
+  /* Numbers from a build before the engine fix are not just old, they are
+     wrong — that is where "97.7% accuracy, 0 blunders, checkmated on move 8"
+     came from. Say so above the figures rather than letting them stand. */
+  const staleReview = (rec.annotations && rec.annotations.length)
+    && (rec.reviewVersion || 0) < REVIEW_VERSION;
+  const staleHtml = staleReview ? `
+    <div class="stale-note">
+      <strong>These figures are from an older review.</strong>
+      They were produced before the engine-reading fix, so the accuracy and
+      error counts below are not trustworthy — that build could read the
+      engine's worst suggestion as the position's evaluation, which makes
+      every move look near-perfect. Re-run the review above to replace them.
+    </div>` : '';
+
   const statsHtml = (typeof rec.accuracy === 'number') ? `
-    <div class="acc-stats">
+    <div class="acc-stats${staleReview ? ' stale' : ''}">
       <span class="stat"><b>${rec.accuracy.toFixed(1)}%</b>accuracy</span>
       <span class="stat"><b>${rec.counts ? rec.counts.blunder : 0}</b>blunders</span>
       <span class="stat"><b>${rec.counts ? rec.counts.mistake : 0}</b>mistakes</span>
@@ -3124,7 +3251,7 @@ function buildReplayPanel(rec){
       ${escapeHtml(rec.botStyleBlurb || '')}
     </div>` : '';
 
-  body.innerHTML = headerHtml + reviewBtnHtml + statsHtml + styleHtml + `
+  body.innerHTML = headerHtml + staleHtml + reviewBtnHtml + statsHtml + styleHtml + `
     <div class="replay-grid">
       <div>
         <div class="board-frame">
@@ -3239,6 +3366,8 @@ function updateReplay(gameId){
    ============================================================ */
 
 function refreshSettingsView(){
+  const stamp = document.getElementById('buildStamp');
+  if (stamp) stamp.textContent = BUILD;
   const statusEl = document.getElementById('settingsStatus');
   const proxyIn = document.getElementById('proxyInput');
   const keyIn = document.getElementById('keyInput');
@@ -3420,9 +3549,13 @@ function classifyLoss(loss){
   return 'best';
 }
 
+/* Returns null when there is no score to clamp. `cp || 0` used to turn a
+   missing score into a confident 0.00, which reads as "dead level" and wipes
+   out the swing around it. Unknown has to stay unknown. */
 function clampCp(cp, mateIn){
   if (mateIn !== null && mateIn !== undefined) return mateIn > 0 ? 1200 : -1200;
-  return Math.max(-1200, Math.min(1200, cp || 0));
+  if (cp === null || cp === undefined || Number.isNaN(cp)) return null;
+  return Math.max(-1200, Math.min(1200, cp));
 }
 
 function hangingPieces(chessObj, colorToCheck){
@@ -3553,26 +3686,37 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
       continue;
     }
 
-    // Per-position timeout so one unresponsive position can't stall the run.
-    let r;
+    /* The engine applies its own soft timeout and stops cleanly, so a slow
+       position can't stall the run — and, unlike the old Promise.race, it
+       can't leave a search running that the NEXT position then reads the
+       output of. */
+    let r = null;
     try{
-      r = await Promise.race([
-        engine.analyse(fen, { depth: DEPTH }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('position timeout')), 15000))
-      ]);
+      r = await engine.analyse(fen, { depth: DEPTH, timeout: 20000 });
     } catch(e){
-      const fallback = evaluate(probe); // local heuristic, White's perspective
-      evals.push({ fen, bestMove: null, cpWhite: Math.max(-1200, Math.min(1200, fallback)) });
-      if (onProgress) onProgress(i + 1, positions.length);
-      continue;
+      r = null;
     }
 
-    const cpStm = clampCp(r.scoreCp, r.mateIn);
-    evals.push({
-      fen,
-      bestMove: r.bestMove,
-      cpWhite: stm === 'w' ? cpStm : -cpStm
-    });
+    const cpStm = r ? clampCp(r.scoreCp, r.mateIn) : null;
+    if (cpStm === null){
+      /* No engine verdict for this position. Fall back to the static
+         heuristic so the walkthrough still renders, but flag it: the
+         heuristic can't see tactics, so any loss measured against it is a
+         guess and must not be counted as accuracy. */
+      const fallback = evaluate(probe); // local heuristic, White's perspective
+      evals.push({
+        fen,
+        bestMove: r ? r.bestMove : null,
+        cpWhite: Math.max(-1200, Math.min(1200, fallback)),
+        estimated: true
+      });
+    } else {
+      evals.push({
+        fen,
+        bestMove: r.bestMove,
+        cpWhite: stm === 'w' ? cpStm : -cpStm
+      });
+    }
     if (onProgress) onProgress(i + 1, positions.length);
   }
 
@@ -3592,14 +3736,17 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
     const severity = classifyLoss(loss);
     const playedUci = moves[i].from + moves[i].to + (moves[i].promotion || '');
     const isPlayer = mover === playerColorCode;
+    // A loss is only meaningful if the engine scored BOTH sides of the move.
+    const estimated = !!(before.estimated || after.estimated);
 
-    if (isPlayer){
+    if (isPlayer && !estimated){
       playerLossTotal += loss;
       playerMoves++;
       counts[severity]++;
     }
 
     annotations.push({
+      estimated,
       ply: i + 1,
       moveNumber: Math.ceil((i + 1) / 2),
       san: moves[i].san,
@@ -3621,7 +3768,7 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
      mean loss. Averaging the loss first lets two or three disasters drag an
      otherwise decent game to near zero, which is what the old formula did. */
   const perMoveAcc = annotations
-    .filter(a => a.isPlayer)
+    .filter(a => a.isPlayer && !a.estimated)
     .map(a => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.004354 * a.loss) - 3.1669)));
   const accuracy = perMoveAcc.length
     ? Math.max(0, Math.min(99.9, perMoveAcc.reduce((s, v) => s + v, 0) / perMoveAcc.length))
@@ -3632,28 +3779,53 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
 
   const plans = readGamePlans(moves, playerColorCode, annotations);
 
+  const unscored = evals.filter(e => e.estimated).length;
+  const skipped = annotations.filter(a => a.isPlayer && a.estimated).length;
+
   const summary = buildLocalSummary({
     resultText, botEloVal, playerColorCode, opening, accuracy, avgLoss,
     counts, annotations, totalMoves: moves.length,
     styleName: styleNameForReview, plans,
-    outcomeWord: outcomeWordForReview
+    outcomeWord: outcomeWordForReview,
+    unscored, skipped, scoredMoves: playerMoves
   });
 
-  return { annotations, accuracy, avgLoss, counts, opening, summary };
+  return { annotations, accuracy, avgLoss, counts, opening, summary, unscored, skipped };
 }
 
 function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, accuracy,
                              avgLoss, counts, annotations, totalMoves, styleName, plans,
-                             outcomeWord }){
+                             outcomeWord, unscored = 0, skipped = 0, scoredMoves = 0 }){
   const you = playerColorCode === 'w' ? 'White' : 'Black';
   const lines = [];
 
   const outWord = outcomeWord || 'Result';
   lines.push(`RESULT — ${outWord.toUpperCase()}. You played ${you} against ${botEloVal === 9999 ? 'Stockfish' : botEloVal + ' ELO'}${styleName ? ' playing a ' + styleName.toLowerCase() + ' style' : ''}. (${resultText})`);
   lines.push('');
-  lines.push(`ACCURACY — ${accuracy.toFixed(1)}%. Average loss per move: ${(avgLoss/100).toFixed(2)} pawns.`);
-  lines.push(`Best moves: ${counts.best} · Good: ${counts.good} · Inaccuracies: ${counts.inaccuracy} · Mistakes: ${counts.mistake} · Blunders: ${counts.blunder}`);
+  /* Say so when the numbers aren't a full engine verdict. A confident-looking
+     accuracy built from positions the engine never scored is worse than no
+     number at all. */
+  if (scoredMoves === 0){
+    lines.push('ACCURACY — not available. The engine could not score this game, so there is nothing to average. Use "Re-run engine review" above.');
+  } else {
+    lines.push(`ACCURACY — ${accuracy.toFixed(1)}%. Average loss per move: ${(avgLoss/100).toFixed(2)} pawns.`);
+    lines.push(`Best moves: ${counts.best} · Good: ${counts.good} · Inaccuracies: ${counts.inaccuracy} · Mistakes: ${counts.mistake} · Blunders: ${counts.blunder}`);
+    if (skipped){
+      lines.push(`Note: the engine couldn't score ${unscored} position${unscored === 1 ? '' : 's'}, so ${skipped} of your moves are left out of the figures above and their explanations are rough estimates. Re-running the review usually fixes this.`);
+    }
+  }
   lines.push('');
+
+  /* A self-check the old review had no way of failing: if you were checkmated,
+     something you played had to be a mistake. If nothing was flagged, the
+     numbers are wrong, and saying so beats reporting a clean scorecard for a
+     game you lost by force. */
+  const mated = /checkmate/i.test(resultText || '');
+  const lostIt = /loss/i.test(outWord);
+  if (mated && lostIt && scoredMoves > 0 && !counts.blunder && !counts.mistake){
+    lines.push('CHECK THIS — you were checkmated, but no mistake or blunder was flagged among your moves. That combination is not possible in a sound scan, so treat the figures above as unreliable and re-run the review.');
+    lines.push('');
+  }
 
   /* Two different things that were previously conflated: where the game left
      book, and where the player first went wrong. */
@@ -3826,6 +3998,7 @@ async function rerunReview(rec){
     );
 
     await updateStoredGame(rec.id, {
+      reviewVersion: REVIEW_VERSION,
       analysisText: review.summary,
       annotations: review.annotations,
       accuracy: review.accuracy,
@@ -4440,14 +4613,38 @@ refreshSoundUI();
    Falls back to the local minimax if the engine can't load.
    ============================================================ */
 
+/* Strength tiers.
+
+   The previous table did not weaken the bot at all, and the reason is worth
+   keeping written down. It set a huge `tolerance` (900cp at 400 ELO) over a
+   MultiPV candidate list — but MultiPV only ever returns the engine's TOP N
+   moves. Accepting "any of Stockfish's best 8 moves at depth 6" is not a
+   beginner; it is a strong club player, because the engine's 8th-best move is
+   usually still fine. The `errorRate` never fired either: it required
+   `scored.length > pool.length`, and with a 900cp tolerance every candidate
+   was already in the pool, so the branch was unreachable.
+
+   Real weakness has to come from OUTSIDE the candidate list. A beginner hangs
+   pieces, and no Stockfish top-N list contains a hung piece. So low tiers now
+   roll against the full legal move list.
+
+     depth       how far the engine looks (lower = misses tactics)
+     multipv     how many candidates to choose among
+     tolerance   how far below best a candidate may be and still count as
+                 "considered" — now tight, since sloppiness is modelled below
+     blunderRate chance of playing a random legal move instead (real errors)
+     sloppyRate  chance of picking from the weak tail of the candidate list
+     maxHang     biggest material gift a random move may give away (cp).
+                 Infinity = this tier will hang anything, queens included.
+     mateBlind   chance of walking past a forced mate it could have played  */
 const ENGINE_TIERS = {
-  400:  { depth:6,  multipv:8, tolerance:900, errorRate:0.40, uciElo:null },
-  800:  { depth:7,  multipv:7, tolerance:450, errorRate:0.26, uciElo:null },
-  1200: { depth:8,  multipv:6, tolerance:250, errorRate:0.15, uciElo:null },
-  1600: { depth:9,  multipv:5, tolerance:140, errorRate:0.07, uciElo:1600 },
-  2000: { depth:10, multipv:4, tolerance:70,  errorRate:0.03, uciElo:2000 },
-  2400: { depth:12, multipv:3, tolerance:30,  errorRate:0.0,  uciElo:2400 },
-  9999: { depth:14, multipv:1, tolerance:0,   errorRate:0.0,  uciElo:null }
+  400:  { depth:3,  multipv:14, tolerance:120, blunderRate:0.35,  sloppyRate:0.55, maxHang:Infinity, mateBlind:0.55, uciElo:null },
+  800:  { depth:4,  multipv:12, tolerance:100, blunderRate:0.20,  sloppyRate:0.50, maxHang:500,      mateBlind:0.35, uciElo:null },
+  1200: { depth:5,  multipv:10, tolerance:80,  blunderRate:0.10,  sloppyRate:0.40, maxHang:320,      mateBlind:0.15, uciElo:null },
+  1600: { depth:7,  multipv:6,  tolerance:60,  blunderRate:0.05,  sloppyRate:0.28, maxHang:150,      mateBlind:0.05, uciElo:1600 },
+  2000: { depth:9,  multipv:4,  tolerance:40,  blunderRate:0.015, sloppyRate:0.15, maxHang:100,      mateBlind:0,    uciElo:2000 },
+  2400: { depth:11, multipv:3,  tolerance:20,  blunderRate:0,     sloppyRate:0.04, maxHang:0,        mateBlind:0,    uciElo:2400 },
+  9999: { depth:14, multipv:1,  tolerance:0,   blunderRate:0,     sloppyRate:0,    maxHang:0,        mateBlind:0,    uciElo:null }
 };
 
 let engineConfigured = null; // remembers the last UCI_Elo we applied
@@ -4476,28 +4673,61 @@ async function chooseEngineMove(g, elo, styleKey){
     engineConfigured = key;
   }
 
+  /* A genuinely bad move, drawn from every legal move rather than from the
+     engine's shortlist. `maxHang` keeps stronger tiers from giving away a
+     queen at random while still letting them drop a pawn or misplace a piece;
+     at 400 nothing is filtered, because hanging pieces is exactly what a
+     beginner does. */
+  const randomLegalMove = () => {
+    const all = g.moves({ verbose: true });
+    if (!all.length) return null;
+    let pool = all;
+    if (tier.maxHang !== Infinity){
+      const safe = all.filter(m => {
+        const probe = new Chess(g.fen());
+        if (!probe.move(m.san)) return false;
+        const hangs = hangingPieces(probe, g.turn());
+        const worst = hangs.length ? Math.max.apply(null, hangs.map(h => h.gain)) : 0;
+        return worst <= tier.maxHang;
+      });
+      if (safe.length) pool = safe;
+    }
+    const m = pool[Math.floor(Math.random() * pool.length)];
+    return m.from + m.to + (m.promotion || '');
+  };
+
+  // Roll for a real error before consulting the engine's opinion at all.
+  if (Math.random() < tier.blunderRate){
+    const slip = randomLegalMove();
+    if (slip) return slip;
+  }
+
   const cands = await engine.analyseMulti(g.fen(), {
     depth: tier.depth,
     multipv: tier.multipv
   });
-  if (!cands || !cands.length) return null;
+  if (!cands || !cands.length) return randomLegalMove();
 
   const scored = cands
     .map(c => ({ uci: c.uci, score: candidateScore(c) }))
     .sort((a, b) => b.score - a.score);
 
   const bestScore = scored[0].score;
-  if (bestScore > 50000) return scored[0].uci;      // always take forced mate
+  /* Forced mate. Weak tiers miss these — a 400 who always finds mate in two
+     stops feeling like a 400 the moment the endgame arrives. */
+  if (bestScore > 50000 && Math.random() >= tier.mateBlind) return scored[0].uci;
+
+  /* Sloppy: choose from the weak end of the shortlist. Not a blunder, just
+     the second-rate idea a weaker player talks themselves into. */
+  if (scored.length > 1 && Math.random() < tier.sloppyRate){
+    const tail = scored.slice(Math.max(1, Math.ceil(scored.length / 3)));
+    const from = tail.length ? tail : scored.slice(1);
+    return from[Math.floor(Math.random() * from.length)].uci;
+  }
 
   // Moves this tier considers acceptable at all.
   let pool = scored.filter(s => bestScore - s.score <= tier.tolerance);
   if (!pool.length) pool = [scored[0]];
-
-  // Occasionally slip to a worse-but-legal candidate.
-  if (Math.random() < tier.errorRate && scored.length > pool.length){
-    const worse = scored.slice(pool.length);
-    return worse[Math.floor(Math.random() * worse.length)].uci;
-  }
 
   // Personality: among acceptable moves, pick the one this style likes most.
   if (styleKey && pool.length > 1){
@@ -4937,6 +5167,65 @@ function runSelfTests(){
     return bad.length === 0 ? true : bad.join('; ');
   });
 
+  check('a missing engine score stays unknown, not 0.00', () => {
+    if (clampCp(null, null) !== null) return 'null cp became ' + clampCp(null, null);
+    if (clampCp(undefined, undefined) !== null) return 'undefined cp became ' + clampCp(undefined, undefined);
+    if (clampCp(0, null) !== 0) return 'a real 0 was thrown away';
+    if (clampCp(-9999, null) !== -1200) return 'clamp broken';
+    if (clampCp(null, 3) !== 1200) return 'mate score broken';
+    return true;
+  });
+
+  check('being checkmated with a clean scorecard is called out', () => {
+    const s = buildLocalSummary({
+      resultText: 'Checkmate — Black wins.', botEloVal: 400, playerColorCode: 'w',
+      opening: null, accuracy: 97.7, avgLoss: 6,
+      counts: { best:7, good:1, inaccuracy:0, mistake:0, blunder:0 },
+      annotations: [], totalMoves: 16, styleName: null, plans: [],
+      outcomeWord: 'Loss', scoredMoves: 8
+    });
+    if (!/CHECK THIS/.test(s)) return 'no warning for a mated game with 0 errors';
+    const ok = buildLocalSummary({
+      resultText: 'Checkmate — Black wins.', botEloVal: 400, playerColorCode: 'w',
+      opening: null, accuracy: 50.8, avgLoss: 269,
+      counts: { best:0, good:2, inaccuracy:2, mistake:2, blunder:2 },
+      annotations: [], totalMoves: 16, styleName: null, plans: [],
+      outcomeWord: 'Loss', scoredMoves: 8
+    });
+    return /CHECK THIS/.test(ok) ? 'warned on a review that was fine' : true;
+  });
+
+  /* The old table looked like it scaled and didn't. These tests fail if the
+     tiers ever stop actually differing from each other. */
+  check('difficulty: strength rises monotonically with ELO', () => {
+    const keys = Object.keys(ENGINE_TIERS).map(Number).sort((a,b) => a-b);
+    for (let i = 1; i < keys.length; i++){
+      const lo = ENGINE_TIERS[keys[i-1]], hi = ENGINE_TIERS[keys[i]];
+      if (hi.blunderRate > lo.blunderRate) return `${keys[i]} blunders more than ${keys[i-1]}`;
+      if (hi.sloppyRate > lo.sloppyRate)   return `${keys[i]} is sloppier than ${keys[i-1]}`;
+      if (hi.depth < lo.depth)             return `${keys[i]} searches shallower than ${keys[i-1]}`;
+      if (hi.mateBlind > lo.mateBlind)     return `${keys[i]} misses mate more than ${keys[i-1]}`;
+    }
+    return true;
+  });
+
+  check('difficulty: the error branch is reachable', () => {
+    /* The previous bug: errorRate could never fire because the tolerance
+       swallowed every candidate. Weak tiers must have a real chance of
+       playing something outside the shortlist. */
+    const weak = ENGINE_TIERS[400];
+    if (!(weak.blunderRate > 0)) return '400 never plays a random legal move';
+    if (weak.maxHang !== Infinity) return '400 refuses to hang pieces';
+    if (weak.tolerance > 200) return '400 tolerance is wide enough to hide the error roll again';
+    return true;
+  });
+
+  check('difficulty: top tier is uncompromised', () => {
+    const t = ENGINE_TIERS[9999];
+    return (t.blunderRate === 0 && t.sloppyRate === 0 && t.mateBlind === 0 && t.multipv === 1)
+      ? true : 'full engine tier has weakening applied to it';
+  });
+
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
     `color:${passed === results.length ? '#5c9678' : '#b1543a'};font-weight:bold`);
@@ -4951,7 +5240,87 @@ function runSelfTests(){
     results.map(r => `${r.pass ? '✓' : '✗'} ${escapeHtml(r.name)}` +
       (r.detail ? `<br><span style="color:#b1543a">&nbsp;&nbsp;${escapeHtml(r.detail)}</span>` : '')).join('<br>');
   document.body.appendChild(box);
+
+  /* The engine tests need the real worker, so they finish after the box is on
+     screen and append themselves to it. */
+  runEngineSelfTests(box);
   return results;
+}
+
+/* Overlapping requests must not read each other's output. This is the bug that
+   produced a 97.7% accuracy report for a game that ended in checkmate, so it
+   gets a permanent test. */
+async function runEngineSelfTests(box){
+  const add = (name, pass, detail) => {
+    const row = document.createElement('div');
+    row.innerHTML = `${pass ? '✓' : '✗'} ${escapeHtml(name)}` +
+      (detail ? `<br><span style="color:#b1543a">&nbsp;&nbsp;${escapeHtml(detail)}</span>` : '');
+    if (box) box.appendChild(row);
+    console.log(`  ${pass ? '✓' : '✗'} ${name}${detail ? ' — ' + detail : ''}`);
+  };
+
+  let engine;
+  try{
+    engine = await loadEngine();
+  } catch(e){
+    add('engine tests', false, 'engine would not load: ' + (e.message || e));
+    return;
+  }
+
+  // Two very different positions, asked for at the same moment.
+  const quiet = 'r1bq1k1r/ppp2ppp/2n5/3pp3/2P5/1P5P/P2PPK2/RN1Q1BNR w - d6 0 8';
+  const mateIn1 = 'r1bq1k1r/ppp2ppp/2n5/3pp3/2P5/1P5P/P2PP3/RN1QKBNR b - - 1 8';
+  try{
+    const [a, b] = await Promise.all([
+      engine.analyse(quiet,   { depth: 10 }),
+      engine.analyse(mateIn1, { depth: 8  })
+    ]);
+    if (b.mateIn !== 1){
+      add('overlapping searches keep their own results', false,
+          'mate-in-1 position came back as ' + JSON.stringify(b));
+    } else if (a.mateIn !== null){
+      add('overlapping searches keep their own results', false,
+          'quiet position inherited the other search: ' + JSON.stringify(a));
+    } else {
+      add('overlapping searches keep their own results', true);
+    }
+  } catch(e){
+    add('overlapping searches keep their own results', false, e.message || String(e));
+  }
+
+  // A bot-style MultiPV search must not leak its extra lines into the next
+  // single-line analysis.
+  try{
+    engine.setOption('UCI_LimitStrength', 'true');
+    engine.setOption('UCI_Elo', 400);
+    await engine.analyseMulti(quiet, { depth: 6, multipv: 8 });
+    const after = await engine.analyse(mateIn1, { depth: 8 });
+    add('a weakened MultiPV search does not skew the next analysis',
+        after.mateIn === 1, after.mateIn === 1 ? '' : 'got ' + JSON.stringify(after));
+  } catch(e){
+    add('a weakened MultiPV search does not skew the next analysis', false, e.message || String(e));
+  }
+
+  // The review of the game that exposed all of this.
+  try{
+    const sans = ['b3','Nc6','c4','Nf6','Ba3','e5','Bxf8','Kxf8','g4','Nxg4','h3','Nxf2','Kxf2','d5','Ke1','Qh4#'];
+    const g = new Chess();
+    for (const s of sans) g.move(s);
+    const rev = await runLocalReview('selftest', g.history({ verbose: true }), g.pgn(),
+      'w', 'Checkmate — Black wins.', 400, null, 'Defensive', 'Loss');
+    const mating = rev.annotations.find(a => a.san === 'Ke1' && a.isPlayer);
+    if (!mating || mating.severity !== 'blunder'){
+      add('the move that allowed mate is flagged as a blunder', false,
+          'Ke1 came back as ' + (mating ? mating.severity + ' (' + mating.loss + 'cp)' : 'missing'));
+    } else if (rev.accuracy > 80){
+      add('the move that allowed mate is flagged as a blunder', false,
+          'accuracy was ' + rev.accuracy.toFixed(1) + '% for a game lost by force');
+    } else {
+      add('the move that allowed mate is flagged as a blunder', true);
+    }
+  } catch(e){
+    add('the move that allowed mate is flagged as a blunder', false, e.message || String(e));
+  }
 }
 
 if (new URLSearchParams(location.search).get('test') === '1'){
