@@ -792,6 +792,55 @@
   .acc-stats{
     display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;
   }
+  /* ---- Endgame drills ---- */
+  .drill-toggle{
+    display:flex;align-items:center;gap:8px;margin-top:14px;
+    font-size:.82rem;color:var(--ivory-dim);cursor:pointer;
+  }
+  .drill-group{ margin-top:18px; }
+  .drill-group h3{
+    font-size:.78rem;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--gold,#c9a227);margin:0 0 4px;
+  }
+  .drill-group p.gsub{ font-size:.8rem;color:var(--ivory-dim);margin:0 0 10px; }
+  .drill-row{
+    display:flex;align-items:center;gap:12px;
+    background:var(--felt-900,#1d1c15);
+    border:1px solid var(--felt-700,#332f22);
+    border-radius:5px;padding:11px 14px;margin-bottom:7px;
+    cursor:pointer;
+  }
+  .drill-row:hover{ border-color:var(--gold,#c9a227); }
+  .drill-row .dname{ flex:1;font-size:.9rem; }
+  .drill-row .dsub{ display:block;font-size:.76rem;color:var(--ivory-dim);margin-top:2px; }
+  .drill-mark{
+    width:26px;height:26px;flex:0 0 26px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:.82rem;border:1px solid var(--felt-700,#332f22);
+  }
+  .drill-mark.done{ background:rgba(92,150,120,.18);border-color:#5c9678;color:#5c9678; }
+  .drill-mark.failed{ background:rgba(177,84,58,.15);border-color:#b1543a;color:#d97757; }
+  .drill-goal{
+    font-size:.85rem;line-height:1.55;padding:10px 13px;margin-bottom:12px;
+    border-left:3px solid var(--gold,#c9a227);
+    background:rgba(201,162,39,.08);border-radius:4px;
+  }
+  .drill-result{
+    margin-top:12px;padding:11px 14px;border-radius:4px;
+    font-size:.86rem;line-height:1.55;border-left:3px solid;
+  }
+  .drill-result.won{ border-color:#5c9678;background:rgba(92,150,120,.12); }
+  .drill-result.bad{ border-color:#b1543a;background:rgba(177,84,58,.12); }
+  .drill-result strong{ display:block;margin-bottom:3px; }
+  .drill-teach{ margin-top:12px;font-size:.82rem;color:var(--ivory-dim);line-height:1.55; }
+  .drill-movelog{
+    margin-top:12px;font-family:'Inter',sans-serif;font-size:.8rem;
+    color:var(--ivory-dim);line-height:1.8;word-spacing:.15em;
+  }
+  .sq.stalemate-risk::after{
+    content:'';position:absolute;inset:0;
+    border:2px dashed #d97757;border-radius:3px;pointer-events:none;
+  }
   .acc-stats.stale{ opacity:.45; }
   .stale-note{
     margin-top:12px;padding:10px 14px;
@@ -1080,6 +1129,7 @@
     <button class="tab-btn active" data-view="play">Play</button>
     <button class="tab-btn" data-view="analysis">Analysis</button>
     <button class="tab-btn" data-view="puzzles">Puzzles</button>
+    <button class="tab-btn" data-view="drills">Drills</button>
     <button class="tab-btn" data-view="progress">Progress</button>
     <button class="tab-btn" data-view="history">History</button>
     <button class="tab-btn" data-view="handbook">Handbook</button>
@@ -1163,6 +1213,47 @@
           <button class="btn" id="puzzleNextBtn" disabled>Next puzzle</button>
         </div>
         <div id="puzzleMeta" style="margin-top:14px;font-size:.85rem;color:var(--ivory-dim);"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DRILLS VIEW -->
+  <section class="view" id="view-drills">
+    <div id="drillListWrap">
+      <div class="panel">
+        <h2>Endgame drills</h2>
+        <p style="font-size:.85rem;color:var(--ivory-dim);margin-top:0;">
+          Set positions played against Stockfish at full strength. It defends perfectly, so
+          sloppy technique gets punished every time and you can't luck into a win.
+          Work down the list — the mates come before anything else.
+        </p>
+        <label class="drill-toggle">
+          <input type="checkbox" id="drillHintToggle" checked>
+          Mark moves that would stalemate
+        </label>
+      </div>
+      <div id="drillList"></div>
+    </div>
+
+    <div id="drillPlayWrap" style="display:none;">
+      <div class="play-grid">
+        <div>
+          <div class="board-frame">
+            <div class="board" id="drillBoard"></div>
+          </div>
+          <div class="btn-row" style="margin-top:12px;">
+            <button class="btn secondary" id="drillBackBtn">← All drills</button>
+            <button class="btn secondary" id="drillRestartBtn">Restart</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2 id="drillTitle">Drill</h2>
+          <div class="drill-goal" id="drillGoal"></div>
+          <div class="status-line" id="drillStatus"></div>
+          <div class="drill-result" id="drillResult" style="display:none;"></div>
+          <div id="drillTeach" class="drill-teach"></div>
+          <div class="drill-movelog" id="drillMoveLog"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -1525,7 +1616,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16 · difficulty + review-version';
+const BUILD = '2026-09-16b · difficulty + endgame drills';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -2340,6 +2431,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (view === 'settings') refreshSettingsView();
     if (view === 'history') renderHistoryView();
     if (view === 'puzzles') refreshPuzzlesView();
+    if (view === 'drills') renderDrillList();
   });
 });
 
@@ -4811,6 +4903,9 @@ function renderChessBoard(container, chessObj, opts){
           if (o.marks[cls] === sq) div.classList.add(cls);
         }
       }
+      if (o.warnSquares && o.warnSquares.indexOf(sq) !== -1){
+        div.classList.add('stalemate-risk');
+      }
 
       if (o.onSquareClick){
         div.addEventListener('click', () => o.onSquareClick(sq));
@@ -5224,6 +5319,42 @@ function runSelfTests(){
     const t = ENGINE_TIERS[9999];
     return (t.blunderRate === 0 && t.sloppyRate === 0 && t.mateBlind === 0 && t.multipv === 1)
       ? true : 'full engine tier has weakening applied to it';
+  });
+
+  check('drills: every position is legal and ready to play', () => {
+    const bad = [];
+    for (const d of DRILLS){
+      const g = new Chess();
+      if (!g.load(d.fen)){ bad.push(d.id + ' (unloadable FEN)'); continue; }
+      if (g.turn() !== 'w') bad.push(d.id + ' (not White to move)');
+      if (g.game_over()) bad.push(d.id + ' (already finished)');
+      if (!g.moves().length) bad.push(d.id + ' (no legal moves)');
+    }
+    return bad.length ? bad.join(', ') : true;
+  });
+
+  check('drills: stalemate detector finds the trap', () => {
+    /* The mate-in-one drill exists because one natural move stalemates.
+       If the detector stops seeing it, the training hint is dead. */
+    const d = DRILLS.find(x => x.id === 'mate-in-1');
+    const g = new Chess();
+    g.load(d.fen);
+    const traps = stalemateMoves(g);
+    if (!traps.length) return 'no stalemating move found in a position built around one';
+    const mates = g.moves({ verbose: true }).filter(m => {
+      const p = new Chess(g.fen()); p.move(m.san); return p.in_checkmate();
+    });
+    if (!mates.length) return 'no mate available in the mate-in-one drill';
+    if (traps.indexOf(mates[0].to) !== -1) return 'the mating square is flagged as a stalemate';
+    return true;
+  });
+
+  check('drills: promotion goals have a pawn to promote', () => {
+    const bad = DRILLS.filter(d => d.goal === 'promote').filter(d => {
+      const g = new Chess(); g.load(d.fen);
+      return !g.board().some(row => row.some(c => c && c.type === 'p' && c.color === 'w'));
+    }).map(d => d.id);
+    return bad.length ? bad.join(', ') : true;
   });
 
   const passed = results.filter(r => r.pass).length;
@@ -5753,6 +5884,382 @@ function outcomeBadge(rec){
          `<span class="colour-badge ${rec.playerColor === 'w' ? 'as-white' : 'as-black'}">` +
          `${rec.playerColor === 'w' ? '♔' : '♚'} You played ${colour}</span>`;
 }
+
+/* ============================================================
+   ENDGAME DRILLS
+
+   Set positions played out against Stockfish at full strength.
+   The point is not to win — it's that a perfect defender refuses
+   to let a sloppy method work. A K+Q mate that "usually" comes
+   off will stalemate here, which is the whole reason this exists.
+
+   goal: 'mate'    — you must deliver checkmate
+         'promote' — you must get a pawn to the eighth
+   par:  a reasonable number of YOUR moves. Going over doesn't
+         fail the drill, it just means the method was loose.
+   ============================================================ */
+
+const DRILL_GROUPS = [
+  { key:'mates', name:'The basic mates',
+    sub:'Learn these until they are automatic. Every one of them can be stalemated if you are careless, which is exactly the point.' },
+  { key:'pawns', name:'King and pawn',
+    sub:'The foundation of every endgame. Opposition, the square, and escorting a pawn home.' },
+  { key:'convert', name:'Converting an advantage',
+    sub:'Being ahead is not the same as winning. These are positions you should not be able to lose.' }
+];
+
+const DRILLS = [
+  {
+    id:'mate-q', group:'mates', name:'King and queen vs king',
+    fen:'8/8/8/4k3/8/8/8/3QK3 w - - 0 1',
+    goal:'mate', par:10,
+    brief:'Mate the black king. Nothing else on the board can help you, so the method has to be clean.',
+    teach:'Method: use the queen a knight\u2019s move away from the enemy king to shrink its box, step by step, until it is on the edge. Then \u2014 and only then \u2014 bring your own king up to support the mate. The danger is the box getting so small the king has no move at all while not in check. If you are not giving check and the king has nowhere to go, you have drawn a won game.'
+  },
+  {
+    id:'mate-r', group:'mates', name:'King and rook vs king',
+    fen:'8/8/8/4k3/8/8/8/R3K3 w - - 0 1',
+    goal:'mate', par:16,
+    brief:'Mate with rook and king. Slower than the queen and less forgiving \u2014 the rook cannot do it alone.',
+    teach:'Method: cut the enemy king off with the rook, then walk your own king up until the two kings face each other with one square between them (the opposition). Then check with the rook to push the enemy king back a rank. Repeat until it runs out of board.'
+  },
+  {
+    id:'mate-2r', group:'mates', name:'Two rooks vs king (the ladder)',
+    fen:'8/8/8/4k3/8/8/8/R5RK w - - 0 1',
+    goal:'mate', par:8,
+    brief:'The easiest mate there is, and worth doing once so the pattern is in your hands.',
+    teach:'Method: check with one rook to push the king back a rank, then check with the other on the next rank up. The king is driven to the edge in a straight line. Your own king never needs to move. Watch for the king stepping toward a rook \u2014 slide that rook to the far side of the board and carry on.'
+  },
+  {
+    id:'mate-in-1', group:'mates', name:'Mate in one \u2014 or stalemate',
+    fen:'7k/4Q3/5K2/8/8/8/8/8 w - - 0 1',
+    goal:'mate', par:1,
+    brief:'One move mates. At least one other move draws on the spot. Find the mate.',
+    teach:'This is the exact position type that cost you a won game. With a bare king in the corner, the square that looks most crushing is often the one that takes away its last move without giving check. Before playing a queen move next to a lone king, ask: is this check? If not, does it still have a square?'
+  },
+  {
+    id:'mate-q-corner', group:'mates', name:'Queen vs king already in the corner',
+    fen:'7k/8/8/8/8/8/8/K5Q1 w - - 0 1',
+    goal:'mate', par:9,
+    brief:'The king is already cornered and your king is miles away. The stalemate traps are everywhere here.',
+    teach:'A cornered king has very few squares to begin with, so the queen alone can freeze it by accident at almost any moment. Keep the king a little space until your own king has walked all the way over, then close the net. Patience costs you nothing; a stalemate costs you the point.'
+  },
+  {
+    id:'kp-opposition', group:'pawns', name:'King and pawn: take the opposition',
+    fen:'4k3/8/4K3/4P3/8/8/8/8 w - - 0 1',
+    goal:'promote', par:6,
+    brief:'Queen the pawn. The obvious pawn push throws it away \u2014 the winning idea is quieter.',
+    teach:'The rule: the king goes first, the pawn follows. Pushing the pawn with check here lets the black king sit in front of it and the game is drawn. Stepping sideways with your king forces the black king to give way, and the pawn walks in behind it. When your king is on the sixth rank in front of your pawn, you are winning; when the enemy king is in front of it, you are not.'
+  },
+  {
+    id:'kp-square', group:'pawns', name:'The square of the pawn',
+    fen:'7k/8/8/8/8/8/P7/7K w - - 0 1',
+    goal:'promote', par:6,
+    brief:'Your pawn is on one side, both kings on the other. Can it get home alone? Work it out before you move.',
+    teach:'Draw an imaginary square with the pawn\u2019s promotion path as one side. If the enemy king cannot step inside that square on its move, the pawn promotes on its own and the king never needs to help. This is a counting rule, not a judgement call \u2014 which makes it one of the few things in chess you can be certain about.'
+  },
+  {
+    id:'convert-rook', group:'convert', name:'Up a whole rook',
+    fen:'8/5ppk/8/8/8/8/5PPK/4R3 w - - 0 1',
+    goal:'mate', par:26,
+    brief:'You are a rook up with pawns still on. Convert it. Stockfish will not resign, so you have to finish the job.',
+    teach:'When you are this far ahead the winning method is boring on purpose: trade pieces, not pawns. Every trade makes the position simpler and your extra material bigger by comparison. Keep your king safe, take the simple move over the clever one, and do not go hunting for a brilliancy \u2014 you already have everything you need.'
+  }
+];
+
+let drillState = null;        // { drill, game, selected, targets, userMoves, over, log }
+let drillResults = {};        // id -> saved record
+let drillThinking = false;
+
+function drillHintsOn(){
+  const el = document.getElementById('drillHintToggle');
+  return !el || el.checked;
+}
+
+/* Every move of ours that would leave the opponent with no legal reply and
+   no check. These get marked on the board, because "don't stalemate" is
+   advice and a dashed square is a habit. */
+function stalemateMoves(chessObj){
+  const out = [];
+  for (const m of chessObj.moves({ verbose: true })){
+    const probe = new Chess(chessObj.fen());
+    if (!probe.move(m.san)) continue;
+    if (probe.in_stalemate()) out.push(m.to);
+  }
+  return out;
+}
+
+async function loadDrillResults(){
+  drillResults = {};
+  try{
+    const listing = await store.list('drills:');
+    for (const key of (listing ? listing.keys : [])){
+      try{
+        const item = await store.get(key);
+        if (item){
+          const rec = JSON.parse(item.value);
+          drillResults[rec.id] = rec;
+        }
+      } catch(e){}
+    }
+  } catch(e){ console.error('list drills failed', e); }
+}
+
+async function saveDrillResult(drill, status, userMoves){
+  const prev = drillResults[drill.id] || { id: drill.id, attempts: 0, solved: false, bestMoves: null };
+  const rec = {
+    id: drill.id,
+    attempts: prev.attempts + 1,
+    solved: prev.solved || status === 'won',
+    bestMoves: status === 'won'
+      ? (prev.bestMoves === null ? userMoves : Math.min(prev.bestMoves, userMoves))
+      : prev.bestMoves,
+    lastStatus: status,
+    lastAt: Date.now()
+  };
+  drillResults[drill.id] = rec;
+  try{ await store.set('drills:' + drill.id, JSON.stringify(rec)); }
+  catch(e){ console.error('save drill failed', e); }
+}
+
+async function renderDrillList(){
+  await loadDrillResults();
+  const wrap = document.getElementById('drillList');
+  if (!wrap) return;
+  document.getElementById('drillListWrap').style.display = '';
+  document.getElementById('drillPlayWrap').style.display = 'none';
+
+  wrap.innerHTML = DRILL_GROUPS.map(g => {
+    const rows = DRILLS.filter(d => d.group === g.key).map(d => {
+      const r = drillResults[d.id];
+      let mark = '<div class="drill-mark">–</div>', note = '';
+      if (r && r.solved){
+        mark = '<div class="drill-mark done">\u2713</div>';
+        note = `Solved in ${r.bestMoves} move${r.bestMoves === 1 ? '' : 's'} (par ${d.par})`;
+      } else if (r){
+        mark = '<div class="drill-mark failed">\u2717</div>';
+        note = `${r.attempts} attempt${r.attempts === 1 ? '' : 's'} \u2014 last: ${DRILL_STATUS_SHORT[r.lastStatus] || r.lastStatus}`;
+      } else {
+        note = `Par ${d.par} move${d.par === 1 ? '' : 's'}`;
+      }
+      return `<div class="drill-row" data-drill="${d.id}">
+        ${mark}
+        <span class="dname">${escapeHtml(d.name)}<span class="dsub">${escapeHtml(note)}</span></span>
+      </div>`;
+    }).join('');
+    return `<div class="drill-group">
+      <h3>${escapeHtml(g.name)}</h3>
+      <p class="gsub">${escapeHtml(g.sub)}</p>
+      ${rows}
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('.drill-row').forEach(row => {
+    row.addEventListener('click', () => startDrill(row.dataset.drill));
+  });
+}
+
+const DRILL_STATUS_SHORT = {
+  won:'converted', stalemate:'stalemated', draw:'drawn',
+  overrun:'took too long', lost:'lost'
+};
+
+function startDrill(id){
+  const drill = DRILLS.find(d => d.id === id);
+  if (!drill) return;
+  drillState = {
+    drill,
+    game: new Chess(drill.fen),
+    selected: null,
+    targets: [],
+    userMoves: 0,
+    over: false,
+    log: []
+  };
+  drillThinking = false;
+
+  document.getElementById('drillListWrap').style.display = 'none';
+  document.getElementById('drillPlayWrap').style.display = '';
+  document.getElementById('drillTitle').textContent = drill.name;
+  document.getElementById('drillGoal').innerHTML =
+    `<strong>${drill.goal === 'mate' ? 'Deliver checkmate.' : 'Promote the pawn.'}</strong> ` +
+    escapeHtml(drill.brief) + ` <em>Par: ${drill.par} moves.</em>`;
+  document.getElementById('drillTeach').innerHTML = '';
+  const res = document.getElementById('drillResult');
+  res.style.display = 'none';
+  res.className = 'drill-result';
+  setDrillStatus('You are White. Your move.');
+  renderDrillBoard();
+  renderDrillLog();
+}
+
+function setDrillStatus(text){
+  const el = document.getElementById('drillStatus');
+  if (el) el.textContent = text;
+}
+
+function renderDrillBoard(){
+  if (!drillState) return;
+  const warn = (!drillState.over && drillHintsOn() && drillState.game.turn() === 'w')
+    ? stalemateMoves(drillState.game)
+    : [];
+  renderChessBoard(document.getElementById('drillBoard'), drillState.game, {
+    flipped: false,
+    interactive: !drillState.over,
+    selected: drillState.selected,
+    targets: drillState.targets,
+    lastMove: drillState.lastMove,
+    warnSquares: warn,
+    onSquareClick: onDrillSquareClick
+  });
+}
+
+function renderDrillLog(){
+  const el = document.getElementById('drillMoveLog');
+  if (!el || !drillState) return;
+  el.textContent = drillState.log.length
+    ? drillState.log.join('  ')
+    : '';
+}
+
+function onDrillSquareClick(sq){
+  if (!drillState || drillState.over || drillThinking) return;
+  const g = drillState.game;
+  if (g.turn() !== 'w') return;
+  const piece = g.get(sq);
+
+  if (drillState.selected){
+    const target = drillState.targets.find(t => t.to === sq);
+    if (target){ drillUserMove(drillState.selected, sq); return; }
+    if (piece && piece.color === 'w'){
+      drillState.selected = sq;
+      drillState.targets = g.moves({ square: sq, verbose: true });
+      renderDrillBoard();
+      return;
+    }
+    drillState.selected = null;
+    drillState.targets = [];
+    renderDrillBoard();
+    return;
+  }
+  if (piece && piece.color === 'w'){
+    drillState.selected = sq;
+    drillState.targets = g.moves({ square: sq, verbose: true });
+    renderDrillBoard();
+  }
+}
+
+async function drillUserMove(from, to){
+  const g = drillState.game;
+  const isPromotion = g.moves({ square: from, verbose: true })
+    .some(m => m.to === to && m.flags.includes('p'));
+  const result = g.move({ from, to, promotion: isPromotion ? 'q' : undefined });
+  if (!result) return;
+
+  drillState.selected = null;
+  drillState.targets = [];
+  drillState.lastMove = { from: result.from, to: result.to };
+  drillState.userMoves++;
+  drillState.log.push(drillState.userMoves + '. ' + result.san);
+  soundForMove(result, g);
+  renderDrillBoard();
+  renderDrillLog();
+
+  if (checkDrillOver(result)) return;
+
+  drillThinking = true;
+  setDrillStatus('Stockfish is thinking\u2026');
+  let uci = null;
+  try{
+    uci = await chooseEngineMove(g, 9999, null);
+  } catch(e){ /* fall through to the offline search */ }
+  let reply = uci ? g.move(uciToMoveObj(uci)) : null;
+  if (!reply){
+    const san = chooseBotMove(g, 2400, null);
+    reply = san ? g.move(san) : null;
+  }
+  drillThinking = false;
+
+  if (reply){
+    drillState.lastMove = { from: reply.from, to: reply.to };
+    drillState.log[drillState.log.length - 1] += ' ' + reply.san;
+    soundForMove(reply, g);
+  }
+  renderDrillBoard();
+  renderDrillLog();
+
+  if (checkDrillOver(reply)) return;
+  setDrillStatus(`Your move. ${drillState.userMoves} played, par ${drillState.drill.par}.`);
+}
+
+function checkDrillOver(lastResult){
+  const st = drillState;
+  const g = st.game;
+  const d = st.drill;
+
+  // Promotion goals finish the moment the pawn gets there.
+  if (d.goal === 'promote' && lastResult && lastResult.flags &&
+      lastResult.flags.includes('p') && lastResult.color === 'w'){
+    finishDrill('won', 'You got the pawn home.');
+    return true;
+  }
+
+  if (g.in_checkmate()){
+    const winner = g.turn() === 'w' ? 'b' : 'w';
+    if (winner === 'w') finishDrill('won', 'Checkmate. That is the position converted.');
+    else finishDrill('lost', 'You got checkmated in a position you were meant to be winning.');
+    return true;
+  }
+
+  if (g.in_stalemate()){
+    finishDrill('stalemate',
+      'Stalemate. Black had no legal move and was not in check, so a won position just became a draw. ' +
+      'This is the single most common way players throw away winning endgames.');
+    return true;
+  }
+
+  if (g.in_draw() || g.insufficient_material() || g.in_threefold_repetition()){
+    finishDrill('draw',
+      'Drawn \u2014 by repetition, the fifty-move rule, or not enough material left to mate. ' +
+      'The material was there at the start; the method let it slip.');
+    return true;
+  }
+
+  if (st.userMoves >= d.par * 3){
+    finishDrill('overrun',
+      `You are past ${d.par * 3} moves on a drill with a par of ${d.par}. The position may still be winnable, ` +
+      'but a method that takes this long usually runs into the fifty-move rule against a real defender.');
+    return true;
+  }
+  return false;
+}
+
+async function finishDrill(status, message){
+  const st = drillState;
+  st.over = true;
+  const won = status === 'won';
+  const res = document.getElementById('drillResult');
+  const parNote = won
+    ? (st.userMoves <= st.drill.par
+        ? ` ${st.userMoves} moves, inside the par of ${st.drill.par}.`
+        : ` ${st.userMoves} moves against a par of ${st.drill.par} \u2014 it went in, but the method was loose. Worth running again.`)
+    : '';
+  res.className = 'drill-result ' + (won ? 'won' : 'bad');
+  res.innerHTML = `<strong>${won ? 'Converted' : 'Not converted'}</strong>` +
+    escapeHtml(message) + escapeHtml(parNote);
+  res.style.display = '';
+  document.getElementById('drillTeach').innerHTML =
+    '<strong style="color:var(--gold,#c9a227);">The method</strong><br>' + escapeHtml(st.drill.teach);
+  setDrillStatus(won ? 'Drill complete.' : 'Drill over — press Restart to try it again.');
+  renderDrillBoard();
+  await saveDrillResult(st.drill, status, st.userMoves);
+}
+
+document.getElementById('drillBackBtn').addEventListener('click', () => renderDrillList());
+document.getElementById('drillRestartBtn').addEventListener('click', () => {
+  if (drillState) startDrill(drillState.drill.id);
+});
+document.getElementById('drillHintToggle').addEventListener('change', () => renderDrillBoard());
 
 </script>
 </body>
