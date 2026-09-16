@@ -1690,7 +1690,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16c · drills + opening tests + blunder scan';
+const BUILD = '2026-09-16d · isDefended fix';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -5607,6 +5607,21 @@ function runSelfTests(){
     return true;
   });
 
+  check('isDefended: a defended piece reads as defended', () => {
+    /* This returned false for everything until it was fixed, which made the
+       blunder-check flag defended pieces and the motif tagger call ordinary
+       trades "hanging". Both callers ask about an occupied square, so that is
+       exactly the case to test. */
+    const g = new Chess();
+    if (!g.load('4k3/8/8/3p4/8/8/8/4K3 b - - 0 1')) return 'lone-pawn FEN failed';
+    if (isDefended(g, 'd5', 'b')) return 'said an undefended pawn was defended';
+
+    const h = new Chess();
+    if (!h.load('4k3/8/2p5/3p4/8/8/8/4K3 b - - 0 1')) return 'defended-pawn FEN failed';
+    if (!isDefended(h, 'd5', 'b')) return 'missed the black pawn on c6 defending d5';
+    return true;
+  });
+
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
     `color:${passed === results.length ? '#5c9678' : '#b1543a'};font-weight:bold`);
@@ -5757,12 +5772,26 @@ function detectPinOrSkewer(chessObj, fromSq, pieceType, moverColor){
   return null;
 }
 
+/* Is `square` defended by `byColor`?
+
+   The old version asked "can byColor make a capture on this square" without
+   changing what was standing there. Every caller asks about a square that
+   already holds one of byColor's OWN pieces — and you cannot capture your own
+   piece, so no such move is ever generated. It returned false every single
+   time, for every square, in every caller. Nothing was ever defended.
+
+   The fix is to stand an enemy queen on the square first, so a real capture
+   exists to be found. A queen is used because it is legal anywhere on the
+   board, unlike a pawn on the first or eighth rank. */
 function isDefended(chessObj, square, byColor){
   try{
     const parts = chessObj.fen().split(' ');
     parts[1] = byColor;
     parts[3] = '-';
     const probe = new Chess(parts.join(' '));
+    if (!probe) return false;
+    probe.remove(square);
+    probe.put({ type: 'q', color: byColor === 'w' ? 'b' : 'w' }, square);
     return probe.moves({ verbose: true }).some(m => m.to === square && m.captured);
   } catch(e){ return false; }
 }
