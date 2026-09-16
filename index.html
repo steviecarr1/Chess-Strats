@@ -772,6 +772,23 @@
   }
   .prog-table td{padding:8px;border-bottom:1px solid var(--felt-800);color:var(--ivory);}
 
+  .outcome-badge{
+    display:inline-block;font-size:.76rem;font-weight:700;padding:3px 11px;
+    border-radius:20px;margin-right:8px;text-transform:uppercase;letter-spacing:.05em;
+  }
+  .outcome-badge.win{background:var(--emerald);color:#eaf5ee;}
+  .outcome-badge.loss{background:var(--ember);color:#fdeee9;}
+  .outcome-badge.draw{background:var(--felt-700);color:var(--ivory);}
+  .outcome-badge.unknown{background:var(--felt-800);color:var(--ivory-dim);}
+  .colour-badge{
+    display:inline-block;font-size:.8rem;padding:3px 10px;border-radius:20px;
+    border:1px solid var(--felt-700);color:var(--ivory-dim);
+  }
+  .colour-badge.as-white{background:#e9dcc0;color:#2b1c0e;border-color:#e9dcc0;}
+  .colour-badge.as-black{background:#1a1610;color:#e9dcc0;border-color:#4a412f;}
+  .acc-vs{font-size:.84rem;color:var(--ivory-dim);margin-left:8px;}
+  .game-header-line{margin-top:14px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+
   .acc-stats{
     display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;
   }
@@ -1527,6 +1544,12 @@ function loadEngine(){
               let scoreCp = null, mateIn = null, pv = null;
               const handler = (line) => {
                 if (line.startsWith('info') && line.includes('score')){
+                  /* Only ever trust the principal variation. If a previous
+                     MultiPV search left extra lines coming back, the last one
+                     is the engine's WORST suggestion — reading that as the
+                     position's evaluation makes every move look perfect. */
+                  const mp = line.match(/multipv (\d+)/);
+                  if (mp && parseInt(mp[1], 10) !== 1) return;
                   const cp = line.match(/score cp (-?\d+)/);
                   const mate = line.match(/score mate (-?\d+)/);
                   if (cp){ scoreCp = parseInt(cp[1], 10); mateIn = null; }
@@ -1546,6 +1569,9 @@ function loadEngine(){
                 }
               };
               pending.push(handler);
+              // Analysis must always run at full strength, single line.
+              worker.postMessage('setoption name MultiPV value 1');
+              worker.postMessage('setoption name UCI_LimitStrength value false');
               worker.postMessage('position fen ' + fen);
               worker.postMessage(movetime ? `go movetime ${movetime}` : `go depth ${depth}`);
             });
@@ -2249,6 +2275,15 @@ async function runAnalysis(resultText){
     date: Date.now(),
     resultText,
     playerColor,
+    outcome: (function(){
+      if (/draw|stalemate|insufficient|repetition|50-move/i.test(resultText)) return 'draw';
+      if (/resigns/i.test(resultText)) return 'loss';   // only the player can resign here
+      if (game.in_checkmate()){
+        const winner = game.turn() === 'w' ? 'b' : 'w';
+        return winner === playerColor ? 'win' : 'loss';
+      }
+      return 'unknown';
+    })(),
     botElo,
     botStyle,
     botStyleName: botStyle ? BOT_STYLES[botStyle].name : null,
@@ -2301,7 +2336,8 @@ Keep it direct, encouraging but honest, and concrete — reference actual move n
           const el = document.getElementById('reviewProgress');
           if (el) el.textContent = `Analysing position ${done} of ${total}…`;
         },
-        botStyle ? BOT_STYLES[botStyle].name : null
+        botStyle ? BOT_STYLES[botStyle].name : null,
+        OUTCOME_LABEL[resolveOutcome({ resultText, playerColor })]
       );
       await updateStoredGame(gameId, {
         analysisText: review.summary,
@@ -3003,7 +3039,8 @@ async function renderAnalysisView(expandId){
       <button class="acc-head">
         <span>
           <span class="acc-when">${new Date(g.date).toLocaleString()}</span>
-          Played ${g.playerColor === 'w' ? 'White' : 'Black'} vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}${g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : ''}
+          ${outcomeBadge(g)}
+          <span class="acc-vs">vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}${g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : ''}</span>
         </span>
         <span class="acc-right">
           <span class="acc-res">${escapeHtml(g.resultText)}</span>
@@ -3078,13 +3115,16 @@ function buildReplayPanel(rec){
       ${rec.openingName ? `<span class="stat opening"><b>${escapeHtml(rec.openingName)}</b>opening</span>` : ''}
     </div>` : '';
 
+  const headerHtml = `<div class="game-header-line">${outcomeBadge(rec)}
+      <span class="acc-vs">vs ${rec.botElo === 9999 ? 'Stockfish' : rec.botElo + ' ELO'}</span></div>`;
+
   const styleHtml = rec.botStyleName ? `
     <div class="style-note">
       <strong>Opponent style: ${escapeHtml(rec.botStyleName)}</strong>
       ${escapeHtml(rec.botStyleBlurb || '')}
     </div>` : '';
 
-  body.innerHTML = reviewBtnHtml + statsHtml + styleHtml + `
+  body.innerHTML = headerHtml + reviewBtnHtml + statsHtml + styleHtml + `
     <div class="replay-grid">
       <div>
         <div class="board-frame">
@@ -3480,8 +3520,9 @@ function explainMove(fenBefore, playedUci, bestUci, loss, severity, phase, befor
   return parts.join(' ');
 }
 
-async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, botEloVal, onProgress, styleNameForReview){
+async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, botEloVal, onProgress, styleNameForReview, outcomeWordForReview){
   const engine = await loadEngine();
+  engineConfigured = null; // analysis resets engine options; force the bot to reapply
   const DEPTH = (typeof navigator !== 'undefined' &&
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) ? 8 : 10;
 
@@ -3594,18 +3635,21 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
   const summary = buildLocalSummary({
     resultText, botEloVal, playerColorCode, opening, accuracy, avgLoss,
     counts, annotations, totalMoves: moves.length,
-    styleName: styleNameForReview, plans
+    styleName: styleNameForReview, plans,
+    outcomeWord: outcomeWordForReview
   });
 
   return { annotations, accuracy, avgLoss, counts, opening, summary };
 }
 
 function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, accuracy,
-                             avgLoss, counts, annotations, totalMoves, styleName, plans }){
+                             avgLoss, counts, annotations, totalMoves, styleName, plans,
+                             outcomeWord }){
   const you = playerColorCode === 'w' ? 'White' : 'Black';
   const lines = [];
 
-  lines.push(`RESULT — ${resultText} You played ${you} against ${botEloVal === 9999 ? 'Stockfish' : botEloVal + ' ELO'}${styleName ? ' playing a ' + styleName.toLowerCase() + ' style' : ''}.`);
+  const outWord = outcomeWord || 'Result';
+  lines.push(`RESULT — ${outWord.toUpperCase()}. You played ${you} against ${botEloVal === 9999 ? 'Stockfish' : botEloVal + ' ELO'}${styleName ? ' playing a ' + styleName.toLowerCase() + ' style' : ''}. (${resultText})`);
   lines.push('');
   lines.push(`ACCURACY — ${accuracy.toFixed(1)}%. Average loss per move: ${(avgLoss/100).toFixed(2)} pawns.`);
   lines.push(`Best moves: ${counts.best} · Good: ${counts.good} · Inaccuracies: ${counts.inaccuracy} · Mistakes: ${counts.mistake} · Blunders: ${counts.blunder}`);
@@ -3777,7 +3821,8 @@ async function rerunReview(rec){
     const review = await runLocalReview(
       rec.id, moves, rec.pgn, rec.playerColor, rec.resultText, rec.botElo,
       (done, total) => setMsg(`Analysing position ${done} of ${total}…`),
-      rec.botStyleName || null
+      rec.botStyleName || null,
+      OUTCOME_LABEL[resolveOutcome(rec)]
     );
 
     await updateStoredGame(rec.id, {
@@ -4879,6 +4924,19 @@ function runSelfTests(){
     return svgLineChart([]).includes('chart-empty') ? true : 'did not degrade';
   });
 
+  check('outcome resolves against the colour you played', () => {
+    const cases = [
+      [{ playerColor:'w', resultText:'Checkmate — Black wins.' }, 'loss'],
+      [{ playerColor:'b', resultText:'Checkmate — Black wins.' }, 'win'],
+      [{ playerColor:'w', resultText:'Checkmate — White wins.' }, 'win'],
+      [{ playerColor:'w', resultText:'Draw by stalemate.' }, 'draw'],
+      [{ playerColor:'w', resultText:'White resigns.' }, 'loss']
+    ];
+    const bad = cases.filter(([rec, want]) => resolveOutcome(rec) !== want)
+      .map(([rec, want]) => `${rec.playerColor}/${rec.resultText} → ${resolveOutcome(rec)}, wanted ${want}`);
+    return bad.length === 0 ? true : bad.join('; ');
+  });
+
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
     `color:${passed === results.length ? '#5c9678' : '#b1543a'};font-weight:bold`);
@@ -5179,10 +5237,10 @@ async function renderProgressView(){
   }
 
   // --- Headline numbers ---
-  const wins = games.filter(g => /checkmate/i.test(g.resultText) &&
-    !new RegExp(g.playerColor === 'w' ? 'Black wins' : 'White wins', 'i').test(g.resultText)).length;
-  const draws = games.filter(g => /draw|stalemate/i.test(g.resultText)).length;
-  const losses = games.length - wins - draws;
+  const outcomes = games.map(resolveOutcome);
+  const wins = outcomes.filter(o => o === 'win').length;
+  const losses = outcomes.filter(o => o === 'loss').length;
+  const draws = outcomes.filter(o => o === 'draw').length;
 
   const avgAcc = reviewed.length
     ? reviewed.reduce((s, g) => s + g.accuracy, 0) / reviewed.length : null;
@@ -5295,6 +5353,36 @@ async function renderProgressView(){
             `<span class="motif-tag big">${escapeHtml(m)} <b>${motifCount[m]}</b></span>`).join('')}</div>`
         : '<div class="chart-empty">No puzzles yet.</div>'}
     </div>`;
+}
+
+/* ============================================================
+   GAME OUTCOME
+   "Checkmate — Black wins" leaves you to work out whether that was
+   your win. Resolve it against the colour you played.
+   ============================================================ */
+
+function resolveOutcome(rec){
+  if (rec.outcome) return rec.outcome;           // saved games already know
+  const txt = rec.resultText || '';
+  const youAre = rec.playerColor === 'w' ? 'White' : 'Black';
+  const them   = rec.playerColor === 'w' ? 'Black' : 'White';
+
+  if (/draw|stalemate|insufficient|repetition|50-move/i.test(txt)) return 'draw';
+  if (new RegExp(youAre + ' wins', 'i').test(txt)) return 'win';
+  if (new RegExp(them + ' wins', 'i').test(txt)) return 'loss';
+  if (new RegExp(youAre + ' resigns', 'i').test(txt)) return 'loss';
+  if (new RegExp(them + ' resigns', 'i').test(txt)) return 'win';
+  return 'unknown';
+}
+
+const OUTCOME_LABEL = { win:'Win', loss:'Loss', draw:'Draw', unknown:'—' };
+
+function outcomeBadge(rec){
+  const o = resolveOutcome(rec);
+  const colour = rec.playerColor === 'w' ? 'White' : 'Black';
+  return `<span class="outcome-badge ${o}">${OUTCOME_LABEL[o]}</span>` +
+         `<span class="colour-badge ${rec.playerColor === 'w' ? 'as-white' : 'as-black'}">` +
+         `${rec.playerColor === 'w' ? '♔' : '♚'} You played ${colour}</span>`;
 }
 
 </script>
