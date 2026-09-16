@@ -1,6 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="refined">
 <head>
+<script>
+/* Every change from the September 2026 design pass lives under html.refined.
+   Nothing below it was edited, so removing the class restores the previous
+   look exactly — that is what makes this reversible rather than a rewrite.
+   Set before first paint so switching back doesn't flash the new theme. */
+(function(){
+  try{
+    if (localStorage.getItem('theme') === 'classic')
+      document.documentElement.classList.remove('refined');
+  } catch(e){}
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#151510">
@@ -1151,6 +1163,177 @@
 
   ::-webkit-scrollbar{width:8px;}
   ::-webkit-scrollbar-thumb{background:var(--felt-700);border-radius:4px;}
+
+  /* ==========================================================
+     DESIGN PASS — September 2026
+     Everything in this block is scoped to html.refined. The
+     original rules above are untouched, so Settings → Classic
+     removes the class and you are back exactly where you were.
+
+     A: reading measure, panel hierarchy, three-tier severity.
+     B: the coach's review typeset as a page rather than dumped
+        as one block of escaped text.
+     ========================================================== */
+
+  /* ---- A1. Reading measure ----
+     The review column ran to about 120 characters on a wide
+     monitor. Comfortable prose is 60–75. This is the single
+     biggest reason the reviews felt like a slog. */
+  html.refined .analysis-body,
+  html.refined .coach-review{ max-width:70ch; }
+  html.refined .panel > p{ max-width:68ch; }
+
+  /* ---- A2. Panel hierarchy ----
+     Everything used the same surface, border and radius, so
+     nothing led. Supporting furniture now sits back a step and
+     the content you actually read sits forward. */
+  html.refined .style-note,
+  html.refined .drill-goal,
+  html.refined .scan-question{
+    background:rgba(255,255,255,.017);
+    border-left-width:2px;
+  }
+  html.refined .acc-stats .stat{
+    background:transparent;
+    border-color:rgba(255,255,255,.07);
+  }
+  html.refined .acc-stats .stat:first-child{
+    background:var(--felt-900);
+    border-color:var(--brass);
+  }
+  html.refined .acc-stats .stat:first-child b{ color:var(--brass-bright); }
+  html.refined .analysis-card{
+    background:linear-gradient(180deg, rgba(255,255,255,.022), transparent 120px), var(--felt-900);
+    border-color:rgba(255,255,255,.09);
+  }
+
+  /* ---- A3. Severity has three levels, so it gets three colours ----
+     Red is now reserved for blunders alone. */
+  html.refined .replay-moves .mvbtn.flagged{ border-color:rgba(255,255,255,.14); }
+  html.refined .replay-moves .mvbtn.sev-inaccuracy{
+    border-color:rgba(193,154,73,.5);
+    color:var(--brass);
+  }
+  html.refined .replay-moves .mvbtn.sev-mistake{
+    border-color:#c2703f;
+    color:#dc9463;
+  }
+  html.refined .replay-moves .mvbtn.sev-blunder{
+    border-color:var(--ember);
+    color:#e07a5c;
+    background:rgba(177,84,58,.13);
+    font-weight:600;
+  }
+  html.refined .replay-moves .mvbtn.current{
+    background:var(--brass);color:#241d0f;border-color:var(--brass-bright);
+  }
+
+  /* ---- B. The coach's review, typeset ---- */
+  html.refined .coach-review{
+    font-family:'Fraunces',serif;
+    font-size:1.02rem;
+    line-height:1.72;
+    color:var(--ivory);
+  }
+  html.refined .coach-review .cr-section{ margin:0 0 26px; }
+  html.refined .coach-review .cr-section:last-child{ margin-bottom:0; }
+
+  /* Running heads: small, spaced, with a hairline that carries the
+     eye across. Replaces "ACCURACY —" sitting in the body text
+     doing a heading's job with no typographic support. */
+  html.refined .coach-review .cr-h{
+    display:flex;align-items:center;gap:12px;
+    font-family:'Fraunces',serif;
+    font-size:.72rem;
+    font-weight:600;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--brass);
+    margin:0 0 9px;
+  }
+  html.refined .coach-review .cr-h::after{
+    content:'';flex:1;height:1px;
+    background:linear-gradient(90deg, rgba(193,154,73,.4), transparent);
+  }
+  html.refined .coach-review p{ margin:0 0 9px; }
+  html.refined .coach-review p:last-child{ margin-bottom:0; }
+
+  /* The headline figure of the review, set like one. */
+  html.refined .coach-review .cr-lede{
+    font-size:1.24rem;
+    line-height:1.45;
+    color:var(--ivory);
+  }
+  html.refined .coach-review .cr-lede strong{ color:var(--brass-bright);font-weight:600; }
+
+  /* Key moments printed the way a chess book prints annotations:
+     the move hangs in the margin, the comment is indented under it. */
+  html.refined .coach-review .cr-moment{
+    padding:9px 0 9px 15px;
+    border-left:2px solid rgba(255,255,255,.08);
+    margin-bottom:5px;
+  }
+  html.refined .coach-review .cr-moment.blunder{ border-left-color:var(--ember); }
+  html.refined .coach-review .cr-moment.mistake{ border-left-color:#c2703f; }
+  html.refined .coach-review .cr-moment.inaccuracy{ border-left-color:rgba(193,154,73,.55); }
+  html.refined .coach-review .cr-move{
+    display:inline-block;
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:.95rem;
+    color:var(--ivory);
+    margin-right:9px;
+  }
+  html.refined .coach-review .cr-tag{
+    display:inline-block;
+    font-family:'Inter',sans-serif;
+    font-size:.64rem;letter-spacing:.11em;text-transform:uppercase;
+    padding:2px 7px;border-radius:2px;vertical-align:2px;
+  }
+  html.refined .coach-review .cr-tag.blunder{ background:rgba(177,84,58,.2);color:#e07a5c; }
+  html.refined .coach-review .cr-tag.mistake{ background:rgba(194,112,63,.2);color:#dc9463; }
+  html.refined .coach-review .cr-tag.inaccuracy{ background:rgba(193,154,73,.16);color:var(--brass); }
+  html.refined .coach-review .cr-moment p{
+    margin:5px 0 0;
+    font-size:.94rem;
+    color:var(--ivory-dim);
+    line-height:1.65;
+  }
+
+  html.refined .coach-review ul.cr-list{ margin:0;padding:0;list-style:none; }
+  html.refined .coach-review ul.cr-list li{
+    position:relative;
+    padding-left:19px;
+    margin-bottom:8px;
+    font-size:.97rem;
+  }
+  html.refined .coach-review ul.cr-list li::before{
+    content:'';position:absolute;left:3px;top:.72em;
+    width:5px;height:5px;border-radius:50%;
+    background:var(--brass);opacity:.65;
+  }
+
+  /* The takeaway is the line you should leave with. */
+  html.refined .coach-review .cr-section.takeaway{
+    margin-top:30px;padding-top:18px;
+    border-top:1px solid rgba(255,255,255,.08);
+  }
+  html.refined .coach-review .cr-section.takeaway p{
+    font-size:1.06rem;font-style:italic;color:var(--ivory);
+  }
+  html.refined .coach-review .cr-section.warn .cr-h{ color:#e07a5c; }
+  html.refined .coach-review .cr-section.warn .cr-h::after{
+    background:linear-gradient(90deg, rgba(177,84,58,.45), transparent);
+  }
+  html.refined .coach-review .cr-note{
+    font-size:.86rem;color:var(--ivory-dim);font-family:'Inter',sans-serif;
+  }
+
+  @media (max-width:760px){
+    html.refined .coach-review{ font-size:.98rem; }
+    html.refined .coach-review .cr-lede{ font-size:1.1rem; }
+  }
+
 </style>
 </head>
 <body>
@@ -1354,6 +1537,17 @@
         <p style="font-size:.88rem;color:var(--ivory-dim);margin:0;">
           Running build: <strong id="buildStamp">—</strong>
         </p>
+        <div class="field" style="margin-top:14px;">
+          <label for="themeSelect">Appearance</label>
+          <select id="themeSelect">
+            <option value="refined">Refined — typeset reviews, graded severity colours</option>
+            <option value="classic">Classic — the original look</option>
+          </select>
+          <p style="font-size:.78rem;color:var(--ivory-dim);margin:6px 0 0;">
+            The September 2026 design pass is layered on top of the original styles rather than
+            replacing them, so Classic puts everything back exactly as it was. Saved per device.
+          </p>
+        </div>
         <p style="font-size:.78rem;color:var(--ivory-dim);margin:8px 0 0;">
           If this doesn't match the build you just uploaded, your browser is showing a cached copy.
           On iPhone: close the tab, then reopen the page — or load it once with <code>?v=2</code> on the end
@@ -1692,7 +1886,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16f · 600 and 1000 ELO tiers';
+const BUILD = '2026-09-16g · design pass (refined/classic)';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -3101,7 +3295,7 @@ function renderHistoryDetail(rec){
       </p>
       <div class="pgn-block">${escapeHtml(rec.pgn)}</div>
       <ul class="principle-list">${momentsHtml}</ul>
-      <div class="analysis-body">${rec.analysisText ? escapeHtml(rec.analysisText) : 'Analysis unavailable for this game.'}</div>
+      ${reviewMarkup(rec.analysisText, 'Analysis unavailable for this game.')}
     </div>`;
 }
 
@@ -3374,8 +3568,11 @@ function buildReplayPanel(rec){
     if (i % 2 === 0) moveBtns += `<span class="movenum">${i / 2 + 1}.</span>`;
     const ann = replayState[rec.id].map[i + 1];
     const sev = ann && ann.severity;
+    /* One red outline for all three severities meant a game with forty
+       flagged moves was forty identical red boxes, which is the same as no
+       signal at all. Each level now gets its own weight. */
     const flagged = (sev === 'blunder' || sev === 'mistake' || sev === 'inaccuracy' || (ann && !sev))
-      ? ' flagged' : '';
+      ? ' flagged' + (sev ? ' sev-' + sev : '') : '';
     moveBtns += `<button class="mvbtn${flagged}" data-ply="${i + 1}">${moves[i].san}</button>`;
   }
 
@@ -3441,7 +3638,7 @@ function buildReplayPanel(rec){
         <div class="replay-moves" id="rbmoves-${rec.id}">${moveBtns}</div>
         <div class="analysis-card" style="margin-top:14px;">
           <h3>Coach's review</h3>
-          <div class="analysis-body">${rec.analysisText ? escapeHtml(rec.analysisText) : 'Analysis text unavailable for this game.'}</div>
+          ${reviewMarkup(rec.analysisText, 'Analysis text unavailable for this game.')}
         </div>
       </div>
     </div>`;
@@ -3539,6 +3736,14 @@ function updateReplay(gameId){
 function refreshSettingsView(){
   const stamp = document.getElementById('buildStamp');
   if (stamp) stamp.textContent = BUILD;
+  const themeSel = document.getElementById('themeSelect');
+  if (themeSel){
+    themeSel.value = document.documentElement.classList.contains('refined') ? 'refined' : 'classic';
+    if (!themeSel.dataset.wired){
+      themeSel.dataset.wired = '1';
+      themeSel.addEventListener('change', e => setTheme(e.target.value));
+    }
+  }
   const statusEl = document.getElementById('settingsStatus');
   const proxyIn = document.getElementById('proxyInput');
   const keyIn = document.getElementById('keyInput');
@@ -5628,6 +5833,49 @@ function runSelfTests(){
     return true;
   });
 
+  check('review typesetting: structure survives a real review', () => {
+    const sample = [
+      'RESULT — LOSS. You played White against 400 ELO. (Checkmate — Black wins.)',
+      '',
+      'ACCURACY — 56.3%. Average loss per move: 1.79 pawns.',
+      '',
+      'KEY MOMENTS —',
+      'Move 12 (dxe5): A blunder — dxe5 cost about 8.4 pawns of advantage.',
+      'Move 16 (f4): A mistake — f4 cost about 3.0 pawns.',
+      '(Suggested alternatives refer to the position before your move.)',
+      '',
+      'HOW THE GAME WENT —',
+      '• You castled, but late.',
+      '',
+      'TAKEAWAY — Fixable stuff.'
+    ].join('\n');
+    const html = formatCoachReview(sample);
+    const want = ['cr-lede', 'cr-moment blunder', 'cr-moment mistake', 'cr-tag',
+                  'ul class="cr-list"', 'cr-note', 'cr-section takeaway'];
+    const missing = want.filter(w => html.indexOf(w) === -1);
+    if (missing.length) return 'missing ' + missing.join(', ');
+    if ((html.match(/class="cr-section/g) || []).length !== 5) return 'wrong section count';
+    return true;
+  });
+
+  check('review typesetting: freeform prose still renders', () => {
+    /* Claude-written reviews have no fixed shape. Anything unrecognised has
+       to fall through as an ordinary paragraph rather than vanishing. */
+    const html = formatCoachReview('Your opening was fine.\n\nThe middlegame drifted.');
+    const paras = (html.match(/<p>/g) || []).length;
+    return paras === 2 ? true : 'expected 2 paragraphs, got ' + paras;
+  });
+
+  check('design pass: classic mode is a real fallback', () => {
+    const had = document.documentElement.classList.contains('refined');
+    document.documentElement.classList.remove('refined');
+    const classic = reviewMarkup('RESULT — WIN. x', 'none');
+    document.documentElement.classList.toggle('refined', had);
+    if (classic.indexOf('coach-review') !== -1) return 'classic mode still uses the new markup';
+    if (classic.indexOf('cr-section') !== -1) return 'classic mode still typesets';
+    return true;
+  });
+
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
     `color:${passed === results.length ? '#5c9678' : '#b1543a'};font-weight:bold`);
@@ -6829,6 +7077,144 @@ async function finishScan(claimedNothing){
 document.getElementById('scanStartBtn').addEventListener('click', startScan);
 document.getElementById('scanNoneBtn').addEventListener('click', () => finishScan(true));
 document.getElementById('scanSubmitBtn').addEventListener('click', () => finishScan(false));
+
+/* ============================================================
+   COACH'S REVIEW — typesetting
+
+   The review used to be dumped into a div as one escaped string
+   with white-space:pre-wrap. It is the most valuable thing the
+   app produces and it was the least designed thing on the page:
+   section names like "ACCURACY —" were plain capitals doing a
+   heading's job with no typographic support, and key moments ran
+   together as undifferentiated prose.
+
+   This reads the same text and gives it structure. It does not
+   change a single word of the review — buildLocalSummary is
+   untouched. Reviews written by Claude rather than the local
+   engine have no fixed shape, so anything unrecognised falls
+   through as an ordinary paragraph and still reads fine.
+   ============================================================ */
+
+const CR_HEADINGS = [
+  'RESULT', 'ACCURACY', 'OPENING', 'KEY MOMENTS', 'HOW THE GAME WENT',
+  'WHAT TO WORK ON', 'TAKEAWAY', 'CHECK THIS'
+];
+
+function crSeverityOf(text){
+  if (/\bA blunder\b/i.test(text)) return 'blunder';
+  if (/\bA mistake\b/i.test(text)) return 'mistake';
+  if (/\bAn inaccuracy\b/i.test(text)) return 'inaccuracy';
+  return '';
+}
+
+function formatCoachReview(raw){
+  if (!raw) return '<p>Analysis text unavailable for this game.</p>';
+
+  const lines = String(raw).split('\n');
+  const sections = [];
+  let current = null;
+
+  const pushBlock = (block) => {
+    if (!current){
+      current = { title: null, blocks: [], cls: '' };
+      sections.push(current);
+    }
+    current.blocks.push(block);
+  };
+
+  for (const rawLine of lines){
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // "HEADING — rest of the line", where the rest may be empty.
+    const head = line.match(/^([A-Z][A-Z' ]{2,24})\s+—\s*(.*)$/);
+    if (head && CR_HEADINGS.indexOf(head[1].trim()) !== -1){
+      const title = head[1].trim();
+      current = {
+        title,
+        blocks: [],
+        cls: title === 'TAKEAWAY' ? 'takeaway' : (title === 'CHECK THIS' ? 'warn' : '')
+      };
+      sections.push(current);
+      if (head[2]) pushBlock({ type: title === 'RESULT' ? 'lede' : 'p', text: head[2] });
+      continue;
+    }
+
+    if (line.indexOf('•') === 0){
+      pushBlock({ type: 'li', text: line.replace(/^•\s*/, '') });
+      continue;
+    }
+
+    // "Move 24 (Ne5): A blunder — ..."
+    const moment = line.match(/^Move\s+(\d+)\s+\(([^)]+)\):\s*(.*)$/);
+    if (moment){
+      pushBlock({
+        type: 'moment',
+        moveNo: moment[1],
+        san: moment[2],
+        text: moment[3],
+        sev: crSeverityOf(moment[3])
+      });
+      continue;
+    }
+
+    // Parenthetical footnotes are asides, not body copy.
+    if (/^\(.*\)$/.test(line)){ pushBlock({ type: 'note', text: line }); continue; }
+
+    pushBlock({ type: 'p', text: line });
+  }
+
+  return sections.map(sec => {
+    let html = '';
+    if (sec.title){
+      html += `<div class="cr-h">${escapeHtml(sec.title)}</div>`;
+    }
+    let listOpen = false;
+    for (const b of sec.blocks){
+      if (b.type === 'li' && !listOpen){ html += '<ul class="cr-list">'; listOpen = true; }
+      if (b.type !== 'li' && listOpen){ html += '</ul>'; listOpen = false; }
+
+      if (b.type === 'li'){
+        html += `<li>${escapeHtml(b.text)}</li>`;
+      } else if (b.type === 'moment'){
+        const sev = b.sev ? ' ' + b.sev : '';
+        html += `<div class="cr-moment${sev}">`
+          + `<span class="cr-move">${escapeHtml(b.moveNo)}. ${escapeHtml(b.san)}</span>`
+          + (b.sev ? `<span class="cr-tag ${b.sev}">${escapeHtml(b.sev)}</span>` : '')
+          + `<p>${escapeHtml(b.text.replace(/^(A blunder|A mistake|An inaccuracy)\s*—\s*/i, ''))}</p>`
+          + '</div>';
+      } else if (b.type === 'lede'){
+        html += `<p class="cr-lede">${escapeHtml(b.text)}</p>`;
+      } else if (b.type === 'note'){
+        html += `<p class="cr-note">${escapeHtml(b.text)}</p>`;
+      } else {
+        html += `<p>${escapeHtml(b.text)}</p>`;
+      }
+    }
+    if (listOpen) html += '</ul>';
+    return `<div class="cr-section ${sec.cls}">${html}</div>`;
+  }).join('');
+}
+
+/* Classic mode gets exactly what it got before: the raw text, escaped,
+   in a pre-wrap block. */
+function reviewMarkup(text, fallback){
+  if (!document.documentElement.classList.contains('refined')){
+    return `<div class="analysis-body">${text ? escapeHtml(text) : fallback}</div>`;
+  }
+  return `<div class="analysis-body coach-review">${text ? formatCoachReview(text) : '<p>' + fallback + '</p>'}</div>`;
+}
+
+function setTheme(mode){
+  const refined = mode !== 'classic';
+  document.documentElement.classList.toggle('refined', refined);
+  try{ localStorage.setItem('theme', refined ? 'refined' : 'classic'); } catch(e){}
+  const sel = document.getElementById('themeSelect');
+  if (sel) sel.value = refined ? 'refined' : 'classic';
+  // Repaint any open review so it switches format immediately.
+  const view = document.getElementById('view-analysis');
+  if (view && view.classList.contains('active')) renderAnalysisView();
+}
 
 </script>
 </body>
