@@ -705,6 +705,73 @@
   }
   .style-note strong{display:block;color:var(--emerald-bright);margin-bottom:3px;font-size:.92rem;}
 
+  /* ---- Puzzles: motifs and queue ---- */
+  .puzzle-queue{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+  .puzzle-queue span{
+    font-size:.74rem;padding:4px 10px;border-radius:20px;
+    border:1px solid var(--felt-700);color:var(--ivory-dim);
+  }
+  .puzzle-queue .q-due{border-color:var(--ember);color:#e8a58f;}
+  .puzzle-queue .q-new{border-color:var(--brass);color:var(--brass-bright);}
+  .motif-tag{
+    display:inline-block;font-size:.74rem;padding:3px 9px;margin:0 4px 4px 0;
+    border-radius:20px;background:var(--felt-800);border:1px solid var(--emerald);
+    color:var(--emerald-bright);font-weight:600;
+  }
+  .motif-tag.big{font-size:.86rem;padding:6px 13px;}
+  .motif-tag.big b{color:var(--ivory);margin-left:4px;}
+  .motif-cloud{display:flex;flex-wrap:wrap;gap:4px;}
+  .puzzle-meta-line{margin-top:6px;font-size:.8rem;color:var(--ivory-dim);}
+
+  /* ---- Progress ---- */
+  .prog-stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+  .prog-stat{
+    background:var(--felt-900);border:1px solid var(--felt-700);border-radius:6px;
+    padding:12px 16px;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--ivory-dim);text-align:center;flex:1 1 120px;
+  }
+  .prog-stat b{
+    display:block;font-family:'Fraunces',serif;font-size:1.5rem;color:var(--brass-bright);
+    text-transform:none;letter-spacing:0;margin-bottom:2px;
+  }
+  .prog-verdict{
+    background:var(--felt-900);border:1px solid var(--felt-700);border-left:3px solid var(--felt-700);
+    border-radius:6px;padding:14px 16px;margin-bottom:16px;font-size:.92rem;color:var(--ivory-dim);
+  }
+  .prog-verdict strong{display:block;color:var(--ivory);margin-bottom:3px;}
+  .prog-verdict.up{border-left-color:var(--emerald-bright);}
+  .prog-verdict.up strong{color:var(--emerald-bright);}
+  .prog-verdict.down{border-left-color:var(--ember);}
+  .prog-verdict.down strong{color:var(--ember);}
+  .prog-card{
+    background:var(--felt-900);border:1px solid var(--felt-700);border-radius:6px;
+    padding:18px 20px;margin-bottom:14px;
+  }
+  .prog-card h3{font-family:'Fraunces',serif;color:var(--brass-bright);margin:0 0 3px;font-size:1.08rem;}
+  .prog-sub{font-size:.82rem;color:var(--ivory-dim);margin:0 0 12px;}
+  .chart{width:100%;height:auto;display:block;}
+  .chart .grid{stroke:var(--felt-700);stroke-width:1;}
+  .chart .axis{fill:var(--ivory-dim);font-size:11px;font-family:'Inter',sans-serif;}
+  .chart .line{fill:none;stroke:var(--brass-bright);stroke-width:2.5;stroke-linejoin:round;}
+  .chart .area{fill:rgba(224,180,95,.12);stroke:none;}
+  .chart .trend{stroke:var(--emerald-bright);stroke-width:1.5;stroke-dasharray:5 4;}
+  .chart .dot{fill:var(--brass-bright);}
+  .chart .bar{fill:var(--ember);opacity:.85;}
+  .chart-empty{color:var(--ivory-dim);font-size:.88rem;padding:20px 0;text-align:center;}
+
+  .phase-row{display:flex;align-items:center;gap:12px;margin-bottom:9px;}
+  .phase-name{width:100px;font-size:.85rem;color:var(--ivory-dim);text-transform:capitalize;}
+  .phase-track{flex:1;height:14px;background:var(--felt-950);border-radius:7px;overflow:hidden;}
+  .phase-fill{display:block;height:100%;background:linear-gradient(90deg,var(--brass),var(--brass-bright));}
+  .phase-pct{width:42px;text-align:right;font-size:.85rem;color:var(--ivory);}
+
+  .prog-table{width:100%;border-collapse:collapse;font-size:.88rem;}
+  .prog-table th{
+    text-align:left;color:var(--ivory-dim);font-size:.74rem;text-transform:uppercase;
+    letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--felt-700);font-weight:600;
+  }
+  .prog-table td{padding:8px;border-bottom:1px solid var(--felt-800);color:var(--ivory);}
+
   .acc-stats{
     display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;
   }
@@ -984,6 +1051,7 @@
     <button class="tab-btn active" data-view="play">Play</button>
     <button class="tab-btn" data-view="analysis">Analysis</button>
     <button class="tab-btn" data-view="puzzles">Puzzles</button>
+    <button class="tab-btn" data-view="progress">Progress</button>
     <button class="tab-btn" data-view="history">History</button>
     <button class="tab-btn" data-view="handbook">Handbook</button>
     <button class="tab-btn" data-view="settings">Settings</button>
@@ -1059,6 +1127,7 @@
         <p style="font-size:.85rem;color:var(--ivory-dim);margin-top:0;">
           These are pulled from moments in your own games where you (or the bot) let the position slip. Find the better move.
         </p>
+        <div class="puzzle-queue" id="puzzleQueue"></div>
         <div class="status-line" id="puzzleStatus">No puzzles yet — play and finish a game first.</div>
         <div class="btn-row">
           <button class="btn secondary" id="puzzleRevealBtn" disabled>Reveal answer</button>
@@ -1067,6 +1136,11 @@
         <div id="puzzleMeta" style="margin-top:14px;font-size:.85rem;color:var(--ivory-dim);"></div>
       </div>
     </div>
+  </section>
+
+  <!-- PROGRESS VIEW -->
+  <section class="view" id="view-progress">
+    <div id="progressContent"></div>
   </section>
 
   <!-- HISTORY VIEW -->
@@ -2124,6 +2198,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById('view-' + view).classList.add('active');
     if (view === 'analysis') renderAnalysisView();
+    if (view === 'progress') renderProgressView();
     if (view === 'settings') refreshSettingsView();
     if (view === 'history') renderHistoryView();
     if (view === 'puzzles') refreshPuzzlesView();
@@ -2721,10 +2796,28 @@ let puzzleLastMove = null;
 let puzzleLocked = false;
 
 async function refreshPuzzlesView(){
-  allPuzzles = await loadAllPuzzles();
-  const unsolved = allPuzzles.filter(p => !p.solved);
+  const all = await loadAllPuzzles();
+  all.forEach(p => { if (!p.sched) p.sched = newSchedule(); });
+
+  const now = Date.now();
+  const due = all.filter(p => p.sched.due <= now && p.sched.reps > 0);
+  const fresh = all.filter(p => p.sched.reps === 0);
+  const later = all.filter(p => p.sched.due > now && p.sched.reps > 0)
+                   .sort((a, b) => a.sched.due - b.sched.due);
+
+  due.sort((a, b) => a.sched.due - b.sched.due);
+  // Review what's due first, then new material, then anything else.
+  allPuzzles = [...due, ...fresh, ...later];
   currentPuzzleIdx = 0;
-  if ((unsolved.length ? unsolved : allPuzzles).length === 0){
+
+  const countEl = document.getElementById('puzzleQueue');
+  if (countEl){
+    countEl.innerHTML = all.length
+      ? `<span class="q-due">${due.length} due</span><span class="q-new">${fresh.length} new</span><span class="q-later">${later.length} scheduled</span>`
+      : '';
+  }
+
+  if (!allPuzzles.length){
     document.getElementById('puzzleStatus').textContent = 'No puzzles yet — play and finish a game first.';
     document.getElementById('puzzleBoard').innerHTML = '';
     document.getElementById('puzzleRevealBtn').disabled = true;
@@ -2732,7 +2825,6 @@ async function refreshPuzzlesView(){
     document.getElementById('puzzleMeta').textContent = '';
     return;
   }
-  allPuzzles = unsolved.length ? unsolved : allPuzzles;
   loadPuzzle(0);
 }
 
@@ -2749,8 +2841,8 @@ function loadPuzzle(idx){
   document.getElementById('puzzleNextBtn').disabled = false;
   document.getElementById('puzzleStatus').textContent =
     `${p.sideToMove === 'w' ? 'White' : 'Black'} to move — find a better move than ${p.yourMove}.`;
-  document.getElementById('puzzleMeta').textContent =
-    `Puzzle ${currentPuzzleIdx + 1} of ${allPuzzles.length} · flagged as a ${p.severity} · attempts so far: ${p.attempts}`;
+  renderPuzzleMeta(p);
+  practiceAttemptClean = true;
   renderPuzzleBoard();
 }
 
@@ -2819,19 +2911,23 @@ async function submitPuzzleAttempt(from, to){
   if (correct){
     sound.correct();
     p.solved = true;
+    const quality = practiceAttemptClean ? 5 : 3;
+    gradePuzzle(p, quality);
     puzzleLastMove = { from, to, correctSq: to };
-    document.getElementById('puzzleStatus').textContent = `Correct — ${p.bestMove.san} was the move.`;
+    document.getElementById('puzzleStatus').textContent =
+      `Correct — ${p.bestMove.san} was the move. ${dueLabel(p)}.`;
   } else {
     sound.wrong();
+    practiceAttemptClean = false;
+    gradePuzzle(p, 1);
     puzzleLastMove = { from, to, wrongSq: to, correctSq: p.bestMove.from === from ? null : p.bestMove.to };
     document.getElementById('puzzleStatus').textContent =
-      `Not quite. The engine's pick was ${p.bestMove.san} (from ${p.bestMove.from} to ${p.bestMove.to}).`;
+      `Not quite. The engine's pick was ${p.bestMove.san} (from ${p.bestMove.from} to ${p.bestMove.to}). You'll see this one again.`;
   }
   puzzleSelected = null;
   puzzleTargets = [];
   renderPuzzleBoard();
-  document.getElementById('puzzleMeta').textContent =
-    `Puzzle ${currentPuzzleIdx + 1} of ${allPuzzles.length} · flagged as a ${p.severity} · attempts so far: ${p.attempts}`;
+  renderPuzzleMeta(p);
 
   try{
     await store.set('puzzles:' + p.id, JSON.stringify(p));
@@ -2842,8 +2938,13 @@ document.getElementById('puzzleRevealBtn').addEventListener('click', () => {
   if (!allPuzzles.length) return;
   const p = allPuzzles[currentPuzzleIdx];
   puzzleLocked = true;
+  practiceAttemptClean = false;
+  gradePuzzle(p, 1);
+  store.set('puzzles:' + p.id, JSON.stringify(p)).catch(() => {});
   puzzleLastMove = { from: p.bestMove.from, to: p.bestMove.to, correctSq: p.bestMove.to };
-  document.getElementById('puzzleStatus').textContent = `Best move: ${p.bestMove.san} (${p.bestMove.from} → ${p.bestMove.to}).`;
+  document.getElementById('puzzleStatus').textContent =
+    `Best move: ${p.bestMove.san} (${p.bestMove.from} → ${p.bestMove.to}). This one will come back.`;
+  renderPuzzleMeta(p);
   renderPuzzleBoard();
 });
 
@@ -3644,9 +3745,11 @@ async function savePuzzlesFromAnnotations(gameId, annotations){
         bestMove: { from: mv.from, to: mv.to, promotion: mv.promotion, san: mv.san },
         severity: a.severity,
         moveNumber: a.moveNumber,
+        motifs: detectMotifs(fenBefore, a.bestMove),
         createdAt: Date.now(),
         solved: false,
-        attempts: 0
+        attempts: 0,
+        sched: newSchedule()
       }));
     } catch(e){ /* skip unusable position */ }
   }
@@ -4737,6 +4840,45 @@ function runSelfTests(){
       ? true : `${a.children[0].dataset.square} / ${b.children[0].dataset.square}`;
   });
 
+  check('spaced repetition stretches on success', () => {
+    const p = { sched: newSchedule() };
+    gradePuzzle(p, 5); const i1 = p.sched.interval;
+    gradePuzzle(p, 5); const i2 = p.sched.interval;
+    gradePuzzle(p, 5); const i3 = p.sched.interval;
+    return (i1 < i2 && i2 < i3) ? true : `intervals ${i1}, ${i2}, ${i3}`;
+  });
+
+  check('a failed puzzle resets and returns immediately', () => {
+    const p = { sched: newSchedule() };
+    gradePuzzle(p, 5); gradePuzzle(p, 5);
+    gradePuzzle(p, 1);
+    return (p.sched.interval === 0 && p.sched.reps === 0 && p.sched.lapses === 1)
+      ? true : JSON.stringify(p.sched);
+  });
+
+  check('motif detection finds a knight fork', () => {
+    // White knight to f7 forking king on e8 and rook on h8
+    const fen = '4k2r/8/8/5N2/8/8/8/4K3 w - - 0 1';
+    const tags = detectMotifs(fen, 'f5g7');
+    return tags.length > 0 ? true : 'no motifs found';
+  });
+
+  check('motif detection finds a back-rank mate', () => {
+    const fen = '6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1';
+    const tags = detectMotifs(fen, 'a1a8');
+    return tags.includes('Mate') || tags.includes('Back rank')
+      ? true : tags.join(',') || 'none';
+  });
+
+  check('charts render without data errors', () => {
+    const svg = svgLineChart([{y:50,label:'a'},{y:70,label:'b'},{y:60,label:'c'}], {min:0,max:100});
+    return svg.indexOf('<svg') === 0 ? true : 'no svg produced';
+  });
+
+  check('charts handle an empty series', () => {
+    return svgLineChart([]).includes('chart-empty') ? true : 'did not degrade';
+  });
+
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
     `color:${passed === results.length ? '#5c9678' : '#b1543a'};font-weight:bold`);
@@ -4756,6 +4898,403 @@ function runSelfTests(){
 
 if (new URLSearchParams(location.search).get('test') === '1'){
   setTimeout(runSelfTests, 300);
+}
+
+/* ============================================================
+   PUZZLE MOTIFS
+   Tags each puzzle with the tactic it teaches, so patterns become
+   visible across a bank of puzzles instead of each one being a
+   one-off position.
+   ============================================================ */
+
+const RAY_DIRS = {
+  r: [[1,0],[-1,0],[0,1],[0,-1]],
+  b: [[1,1],[1,-1],[-1,1],[-1,-1]],
+  q: [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
+};
+
+function sqToRC(sq){ return { c: sq.charCodeAt(0) - 97, r: 8 - parseInt(sq[1], 10) }; }
+function rcToSq(r, c){ return String.fromCharCode(97 + c) + (8 - r); }
+
+/* Walk outward from a square: is an enemy piece shielding a more valuable
+   one behind it? That's a pin (or a skewer if the front piece is the
+   bigger one). */
+function detectPinOrSkewer(chessObj, fromSq, pieceType, moverColor){
+  const dirs = RAY_DIRS[pieceType];
+  if (!dirs) return null;
+  const { r, c } = sqToRC(fromSq);
+
+  for (const [dr, dc] of dirs){
+    let rr = r + dr, cc = c + dc;
+    let first = null;
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8){
+      const sq = rcToSq(rr, cc);
+      const p = chessObj.get(sq);
+      if (p){
+        if (!first){
+          if (p.color === moverColor) break;   // own piece blocks the ray
+          first = { p, sq };
+        } else {
+          if (p.color === moverColor) break;
+          const frontVal = VALUES[first.p.type];
+          const backVal = p.type === 'k' ? 10000 : VALUES[p.type];
+          if (backVal > frontVal) return 'Pin';
+          if (frontVal > backVal && backVal >= 300) return 'Skewer';
+          break;
+        }
+      }
+      rr += dr; cc += dc;
+    }
+  }
+  return null;
+}
+
+function isDefended(chessObj, square, byColor){
+  try{
+    const parts = chessObj.fen().split(' ');
+    parts[1] = byColor;
+    parts[3] = '-';
+    const probe = new Chess(parts.join(' '));
+    return probe.moves({ verbose: true }).some(m => m.to === square && m.captured);
+  } catch(e){ return false; }
+}
+
+function detectMotifs(fenBefore, bestUci){
+  const tags = [];
+  if (!bestUci) return tags;
+  const before = new Chess(fenBefore);
+  const after = new Chess(fenBefore);
+  const mv = after.move({
+    from: bestUci.slice(0,2), to: bestUci.slice(2,4), promotion: bestUci[4] || 'q'
+  });
+  if (!mv) return tags;
+
+  const mover = mv.color;
+  const enemy = mover === 'w' ? 'b' : 'w';
+
+  if (after.in_checkmate()) tags.push('Mate');
+  if (mv.flags.includes('p')) tags.push('Promotion');
+
+  // What does the piece hit from its new square?
+  const hits = attacksFrom(after, mv.to);
+  const bigHits = hits.filter(h => VALUES[h.piece] >= 300);
+  const givesCheck = after.in_check();
+
+  if (bigHits.length >= 2 || (bigHits.length >= 1 && givesCheck)){
+    tags.push(mv.piece === 'n' ? 'Knight fork' : 'Fork');
+  } else if (hits.length >= 2){
+    tags.push('Double attack');
+  }
+
+  const pinTag = detectPinOrSkewer(after, mv.to, mv.piece, mover);
+  if (pinTag) tags.push(pinTag);
+
+  // Capturing something that wasn't defended
+  if (mv.captured && !isDefended(before, mv.to, enemy)){
+    tags.push('Hanging piece');
+  } else if (mv.captured && VALUES[mv.captured] > VALUES[mv.piece]){
+    tags.push('Wins material');
+  }
+
+  // Back-rank ideas: a check along the enemy king's home rank
+  if (givesCheck && (mv.piece === 'r' || mv.piece === 'q')){
+    const kingRank = enemy === 'w' ? '1' : '8';
+    if (mv.to[1] === kingRank) tags.push('Back rank');
+  }
+
+  // Discovered attack: some *other* friendly piece now hits something big
+  if (!tags.includes('Fork') && !tags.includes('Knight fork')){
+    const beforeHits = attacksFrom(before, mv.from).length;
+    const board = after.board();
+    let discovered = false;
+    for (let r = 0; r < 8 && !discovered; r++){
+      for (let c = 0; c < 8 && !discovered; c++){
+        const cell = board[r][c];
+        if (!cell || cell.color !== mover) continue;
+        const sq = rcToSq(r, c);
+        if (sq === mv.to) continue;
+        if (!RAY_DIRS[cell.type]) continue;
+        const nowHits = attacksFrom(after, sq).filter(h => VALUES[h.piece] >= 300);
+        const thenHits = attacksFrom(before, sq).filter(h => VALUES[h.piece] >= 300);
+        if (nowHits.length > thenHits.length) discovered = true;
+      }
+    }
+    if (discovered) tags.push('Discovered attack');
+  }
+
+  if (!tags.length) tags.push(givesCheck ? 'Check' : 'Best move');
+  return tags.slice(0, 3);
+}
+
+/* ============================================================
+   SPACED REPETITION (SM-2, simplified)
+   A solved puzzle used to disappear forever and a failed one never
+   came back on a schedule. Now each puzzle has a due date that
+   stretches as you keep getting it right.
+   ============================================================ */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function newSchedule(){
+  return { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 };
+}
+
+function gradePuzzle(p, quality){
+  // quality: 5 = right first try, 3 = right after a stumble, 1 = wrong/revealed
+  if (!p.sched) p.sched = newSchedule();
+  const s = p.sched;
+
+  if (quality >= 3){
+    s.reps += 1;
+    if (s.reps === 1) s.interval = 1;
+    else if (s.reps === 2) s.interval = 3;
+    else s.interval = Math.round(s.interval * s.ease);
+    s.ease = Math.max(1.3, s.ease + (0.1 - (5 - quality) * 0.08));
+  } else {
+    s.reps = 0;
+    s.lapses += 1;
+    s.interval = 0;          // comes back in this session
+    s.ease = Math.max(1.3, s.ease - 0.2);
+  }
+  s.due = Date.now() + s.interval * DAY_MS;
+  s.lastGrade = quality;
+  s.lastSeen = Date.now();
+  return s;
+}
+
+function dueLabel(p){
+  if (!p.sched || !p.sched.reps) return 'New';
+  const days = Math.round((p.sched.due - Date.now()) / DAY_MS);
+  if (days <= 0) return 'Due now';
+  if (days === 1) return 'Due tomorrow';
+  return 'Due in ' + days + ' days';
+}
+
+let practiceAttemptClean = true;
+
+function renderPuzzleMeta(p){
+  const el = document.getElementById('puzzleMeta');
+  if (!el) return;
+  const motifs = (p.motifs && p.motifs.length)
+    ? p.motifs.map(m => `<span class="motif-tag">${escapeHtml(m)}</span>`).join('')
+    : '';
+  const reps = p.sched ? p.sched.reps : 0;
+  const lapses = p.sched ? p.sched.lapses : 0;
+  el.innerHTML = motifs +
+    `<div class="puzzle-meta-line">Puzzle ${currentPuzzleIdx + 1} of ${allPuzzles.length}` +
+    ` · from a ${escapeHtml(p.severity)} at move ${p.moveNumber}` +
+    ` · ${escapeHtml(dueLabel(p))}` +
+    (reps ? ` · solved ${reps}× in a row` : '') +
+    (lapses ? ` · missed ${lapses}×` : '') +
+    `</div>`;
+}
+
+/* ============================================================
+   PROGRESS
+   Per-game accuracy told you nothing about whether you're actually
+   improving. This aggregates across every saved game.
+   ============================================================ */
+
+function svgLineChart(points, opts){
+  const o = opts || {};
+  const W = 640, H = 220, padL = 44, padR = 14, padT = 14, padB = 30;
+  if (!points.length) return '<div class="chart-empty">Not enough games yet.</div>';
+
+  const ys = points.map(p => p.y);
+  let min = o.min !== undefined ? o.min : Math.min(...ys);
+  let max = o.max !== undefined ? o.max : Math.max(...ys);
+  if (max - min < 1){ max = min + 1; }
+  const pad = (max - min) * 0.1;
+  min = o.min !== undefined ? o.min : min - pad;
+  max = o.max !== undefined ? o.max : max + pad;
+
+  const x = i => padL + (points.length === 1 ? (W - padL - padR) / 2
+                 : i * (W - padL - padR) / (points.length - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - min) / (max - min));
+
+  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.y).toFixed(1)}`).join(' ');
+  const area = path + ` L${x(points.length-1).toFixed(1)},${(H-padB).toFixed(1)} L${x(0).toFixed(1)},${(H-padB).toFixed(1)} Z`;
+
+  const gridVals = [0, 0.25, 0.5, 0.75, 1].map(f => min + (max - min) * f);
+  const grid = gridVals.map(v =>
+    `<line x1="${padL}" y1="${y(v).toFixed(1)}" x2="${W-padR}" y2="${y(v).toFixed(1)}" class="grid"/>` +
+    `<text x="${padL-8}" y="${(y(v)+4).toFixed(1)}" class="axis" text-anchor="end">${Math.round(v)}</text>`
+  ).join('');
+
+  // Trend line (least squares) so direction is visible, not just noise
+  let trend = '';
+  if (points.length >= 3){
+    const n = points.length;
+    const sx = points.reduce((s,_,i) => s+i, 0);
+    const sy = ys.reduce((s,v) => s+v, 0);
+    const sxy = points.reduce((s,p,i) => s + i*p.y, 0);
+    const sxx = points.reduce((s,_,i) => s + i*i, 0);
+    const slope = (n*sxy - sx*sy) / (n*sxx - sx*sx);
+    const icept = (sy - slope*sx) / n;
+    trend = `<line x1="${x(0).toFixed(1)}" y1="${y(icept).toFixed(1)}" ` +
+            `x2="${x(n-1).toFixed(1)}" y2="${y(icept + slope*(n-1)).toFixed(1)}" class="trend"/>`;
+  }
+
+  const dots = points.map((p, i) =>
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(p.y).toFixed(1)}" r="3.5" class="dot"><title>${escapeHtml(p.label || '')}: ${p.y.toFixed(1)}</title></circle>`
+  ).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="xMidYMid meet">
+    ${grid}
+    <path d="${area}" class="area"/>
+    <path d="${path}" class="line"/>
+    ${trend}${dots}
+  </svg>`;
+}
+
+function svgBarChart(bars){
+  const W = 640, H = 200, padL = 44, padR = 14, padT = 14, padB = 40;
+  if (!bars.length) return '<div class="chart-empty">No data yet.</div>';
+  const max = Math.max(1, ...bars.map(b => b.v));
+  const bw = (W - padL - padR) / bars.length;
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="xMidYMid meet">
+    ${bars.map((b, i) => {
+      const h = (H - padT - padB) * (b.v / max);
+      const x = padL + i * bw + bw * 0.18;
+      const y = H - padB - h;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*0.64).toFixed(1)}" height="${Math.max(1,h).toFixed(1)}" class="bar"/>` +
+             `<text x="${(x + bw*0.32).toFixed(1)}" y="${(y-5).toFixed(1)}" class="axis" text-anchor="middle">${b.v}</text>` +
+             `<text x="${(x + bw*0.32).toFixed(1)}" y="${(H-padB+16).toFixed(1)}" class="axis" text-anchor="middle">${escapeHtml(b.label)}</text>`;
+    }).join('')}
+  </svg>`;
+}
+
+async function renderProgressView(){
+  const el = document.getElementById('progressContent');
+  el.innerHTML = '<div class="analysis-loading"><div class="spin"></div>Crunching your games…</div>';
+
+  const games = (await loadAllGames()).slice().sort((a, b) => a.date - b.date);
+  const puzzles = await loadAllPuzzles();
+  const reviewed = games.filter(g => typeof g.accuracy === 'number');
+
+  if (!games.length){
+    el.innerHTML = '<div class="analysis-empty">No games yet. Play a few and your progress will show up here.</div>';
+    return;
+  }
+
+  // --- Headline numbers ---
+  const wins = games.filter(g => /checkmate/i.test(g.resultText) &&
+    !new RegExp(g.playerColor === 'w' ? 'Black wins' : 'White wins', 'i').test(g.resultText)).length;
+  const draws = games.filter(g => /draw|stalemate/i.test(g.resultText)).length;
+  const losses = games.length - wins - draws;
+
+  const avgAcc = reviewed.length
+    ? reviewed.reduce((s, g) => s + g.accuracy, 0) / reviewed.length : null;
+  const recent = reviewed.slice(-5);
+  const older = reviewed.slice(0, -5);
+  const recentAvg = recent.length ? recent.reduce((s,g) => s+g.accuracy, 0) / recent.length : null;
+  const olderAvg = older.length ? older.reduce((s,g) => s+g.accuracy, 0) / older.length : null;
+  const delta = (recentAvg !== null && olderAvg !== null) ? recentAvg - olderAvg : null;
+
+  const totalBlunders = reviewed.reduce((s, g) => s + (g.counts ? g.counts.blunder : 0), 0);
+  const blundersPerGame = reviewed.length ? totalBlunders / reviewed.length : 0;
+
+  // --- Phase breakdown ---
+  const phaseLoss = { opening:0, middlegame:0, endgame:0 };
+  reviewed.forEach(g => (g.annotations || []).forEach(a => {
+    if (a.isPlayer && phaseLoss[a.phase] !== undefined) phaseLoss[a.phase] += a.loss;
+  }));
+  const phaseTotal = phaseLoss.opening + phaseLoss.middlegame + phaseLoss.endgame;
+
+  // --- Record by opponent style ---
+  const byStyle = {};
+  games.forEach(g => {
+    const k = g.botStyleName || 'Unknown';
+    if (!byStyle[k]) byStyle[k] = { n:0, acc:0, accN:0 };
+    byStyle[k].n++;
+    if (typeof g.accuracy === 'number'){ byStyle[k].acc += g.accuracy; byStyle[k].accN++; }
+  });
+
+  // --- Puzzle stats ---
+  const solvedEver = puzzles.filter(p => p.sched && p.sched.reps > 0).length;
+  const dueNow = puzzles.filter(p => p.sched && p.sched.due <= Date.now() && p.sched.reps > 0).length;
+  const motifCount = {};
+  puzzles.forEach(p => (p.motifs || []).forEach(m => { motifCount[m] = (motifCount[m] || 0) + 1; }));
+  const topMotifs = Object.keys(motifCount)
+    .sort((a,b) => motifCount[b] - motifCount[a]).slice(0, 6);
+
+  const accPoints = reviewed.map((g, i) => ({
+    y: g.accuracy,
+    label: new Date(g.date).toLocaleDateString()
+  }));
+  const blunderBars = reviewed.slice(-12).map((g, i) => ({
+    v: g.counts ? g.counts.blunder : 0,
+    label: String(i + 1)
+  }));
+
+  el.innerHTML = `
+    <div class="prog-stats">
+      <div class="prog-stat"><b>${games.length}</b>games played</div>
+      <div class="prog-stat"><b>${wins}–${losses}–${draws}</b>W–L–D</div>
+      <div class="prog-stat"><b>${avgAcc !== null ? avgAcc.toFixed(1) + '%' : '—'}</b>average accuracy</div>
+      <div class="prog-stat"><b>${blundersPerGame.toFixed(1)}</b>blunders per game</div>
+      <div class="prog-stat"><b>${solvedEver}</b>puzzles learned</div>
+      <div class="prog-stat"><b>${dueNow}</b>puzzles due</div>
+    </div>
+
+    ${delta !== null ? `<div class="prog-verdict ${delta >= 0 ? 'up' : 'down'}">
+      <strong>${delta >= 0 ? 'Trending up' : 'Trending down'}</strong>
+      Your last ${recent.length} games average ${recentAvg.toFixed(1)}% accuracy versus ${olderAvg.toFixed(1)}% before that —
+      ${delta >= 0 ? 'a gain' : 'a drop'} of ${Math.abs(delta).toFixed(1)} points.
+    </div>` : `<div class="prog-verdict">
+      <strong>Not enough reviewed games yet</strong>
+      Play and review at least six games and a trend will appear here.
+    </div>`}
+
+    <div class="prog-card">
+      <h3>Accuracy over time</h3>
+      <p class="prog-sub">Each dot is a reviewed game, oldest first. The straight line is the trend.</p>
+      ${svgLineChart(accPoints, { min: 0, max: 100 })}
+    </div>
+
+    <div class="prog-card">
+      <h3>Blunders per game</h3>
+      <p class="prog-sub">Your last ${blunderBars.length} reviewed games.</p>
+      ${svgBarChart(blunderBars)}
+    </div>
+
+    <div class="prog-card">
+      <h3>Where you lose ground</h3>
+      <p class="prog-sub">Share of your total evaluation loss by phase of the game.</p>
+      ${phaseTotal > 0 ? `
+        <div class="phase-bars">
+          ${['opening','middlegame','endgame'].map(ph => {
+            const pct = (phaseLoss[ph] / phaseTotal) * 100;
+            return `<div class="phase-row">
+              <span class="phase-name">${ph}</span>
+              <span class="phase-track"><span class="phase-fill" style="width:${pct.toFixed(1)}%"></span></span>
+              <span class="phase-pct">${pct.toFixed(0)}%</span>
+            </div>`;
+          }).join('')}
+        </div>` : '<div class="chart-empty">Review some games to see this.</div>'}
+    </div>
+
+    <div class="prog-card">
+      <h3>By opponent style</h3>
+      <table class="prog-table">
+        <tr><th>Style</th><th>Games</th><th>Avg accuracy</th></tr>
+        ${Object.keys(byStyle).map(k => `<tr>
+          <td>${escapeHtml(k)}</td>
+          <td>${byStyle[k].n}</td>
+          <td>${byStyle[k].accN ? (byStyle[k].acc / byStyle[k].accN).toFixed(1) + '%' : '—'}</td>
+        </tr>`).join('')}
+      </table>
+    </div>
+
+    <div class="prog-card">
+      <h3>Your most common tactical gaps</h3>
+      <p class="prog-sub">Motifs that show up most often in puzzles built from your own mistakes.</p>
+      ${topMotifs.length
+        ? `<div class="motif-cloud">${topMotifs.map(m =>
+            `<span class="motif-tag big">${escapeHtml(m)} <b>${motifCount[m]}</b></span>`).join('')}</div>`
+        : '<div class="chart-empty">No puzzles yet.</div>'}
+    </div>`;
 }
 
 </script>
