@@ -1197,36 +1197,100 @@
     background:transparent;
     border-color:rgba(255,255,255,.07);
   }
-  html.refined .acc-stats .stat:first-child{
+
+  /* The counters carry the same colours as the moves they count, so the
+     summary and the move list read as one system rather than two. A count of
+     zero drops back to neutral — an empty blunder box should not glow red. */
+  html.refined .acc-stats .stat-accuracy{
     background:var(--felt-900);
     border-color:var(--brass);
   }
-  html.refined .acc-stats .stat:first-child b{ color:var(--brass-bright); }
+  html.refined .acc-stats .stat-accuracy b{ color:var(--brass-bright); }
+
+  html.refined .acc-stats .stat-inaccuracy{ border-color:rgba(111,147,168,.45); }
+  html.refined .acc-stats .stat-inaccuracy b{ color:var(--sev-inaccuracy-bright); }
+
+  html.refined .acc-stats .stat-mistake{
+    border-color:rgba(221,163,32,.55);
+    background:rgba(221,163,32,.07);
+  }
+  html.refined .acc-stats .stat-mistake b{ color:var(--sev-mistake-bright); }
+
+  html.refined .acc-stats .stat-blunder{
+    border-color:var(--sev-blunder);
+    background:rgba(197,68,42,.12);
+  }
+  html.refined .acc-stats .stat-blunder b{ color:var(--sev-blunder-bright); }
+
+  html.refined .acc-stats .stat.is-zero{
+    border-color:rgba(255,255,255,.07);
+    background:transparent;
+  }
+  html.refined .acc-stats .stat.is-zero b{ color:var(--ivory-dim);opacity:.6; }
   html.refined .analysis-card{
     background:linear-gradient(180deg, rgba(255,255,255,.022), transparent 120px), var(--felt-900);
     border-color:rgba(255,255,255,.09);
   }
 
   /* ---- A3. Severity has three levels, so it gets three colours ----
-     Red is now reserved for blunders alone. */
+
+     The first attempt used brass, orange and red — three warm tones sitting
+     within about thirty degrees of hue of each other, which is exactly the
+     range the eye is worst at separating (and the range red-green colour
+     blindness flattens completely). Severity now runs cool to hot instead:
+     steel blue, amber, red. Blue against yellow against red is the most
+     reliably distinguishable triad there is.
+
+     Moving inaccuracy off brass also stops it clashing with brass as the
+     app's primary accent — the current-move highlight is brass, and having
+     "where you are" and "minor error" share a colour was its own problem.
+
+     Colour is not carrying this alone: weight and fill step up with
+     severity too, so the three levels separate in greyscale as well. */
+  html.refined{
+    --sev-inaccuracy:#6f93a8;
+    --sev-inaccuracy-bright:#93b6ca;
+    --sev-mistake:#dda320;
+    --sev-mistake-bright:#f0bc47;
+    --sev-blunder:#c5442a;
+    --sev-blunder-bright:#f08a6d;
+  }
   html.refined .replay-moves .mvbtn.flagged{ border-color:rgba(255,255,255,.14); }
   html.refined .replay-moves .mvbtn.sev-inaccuracy{
-    border-color:rgba(193,154,73,.5);
-    color:var(--brass);
+    border-color:rgba(111,147,168,.55);
+    color:var(--sev-inaccuracy-bright);
   }
   html.refined .replay-moves .mvbtn.sev-mistake{
-    border-color:#c2703f;
-    color:#dc9463;
+    border-color:var(--sev-mistake);
+    color:var(--sev-mistake-bright);
+    background:rgba(221,163,32,.1);
+    font-weight:500;
   }
   html.refined .replay-moves .mvbtn.sev-blunder{
-    border-color:var(--ember);
-    color:#e07a5c;
-    background:rgba(177,84,58,.13);
-    font-weight:600;
+    border-color:var(--sev-blunder);
+    color:var(--sev-blunder-bright);
+    background:rgba(197,68,42,.2);
+    font-weight:700;
   }
   html.refined .replay-moves .mvbtn.current{
     background:var(--brass);color:#241d0f;border-color:var(--brass-bright);
   }
+
+  /* A key, because three colours only mean something if you know what they
+     mean without being told each time. */
+  html.refined .sev-key{
+    display:flex;flex-wrap:wrap;gap:14px;
+    margin:0 0 9px;
+    font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ivory-dim);
+  }
+  html.refined .sev-key span{ display:flex;align-items:center;gap:6px; }
+  html.refined .sev-key i{
+    width:10px;height:10px;border-radius:2px;border:1.5px solid;display:block;
+  }
+  html.refined .sev-key .k-inaccuracy i{ border-color:var(--sev-inaccuracy); }
+  html.refined .sev-key .k-mistake i{ border-color:var(--sev-mistake);background:rgba(221,163,32,.25); }
+  html.refined .sev-key .k-blunder i{ border-color:var(--sev-blunder);background:rgba(197,68,42,.45); }
 
   /* ---- B. The coach's review, typeset ---- */
   html.refined .coach-review{
@@ -1273,9 +1337,9 @@
     border-left:2px solid rgba(255,255,255,.08);
     margin-bottom:5px;
   }
-  html.refined .coach-review .cr-moment.blunder{ border-left-color:var(--ember); }
-  html.refined .coach-review .cr-moment.mistake{ border-left-color:#c2703f; }
-  html.refined .coach-review .cr-moment.inaccuracy{ border-left-color:rgba(193,154,73,.55); }
+  html.refined .coach-review .cr-moment.blunder{ border-left-color:var(--sev-blunder);border-left-width:3px; }
+  html.refined .coach-review .cr-moment.mistake{ border-left-color:var(--sev-mistake); }
+  html.refined .coach-review .cr-moment.inaccuracy{ border-left-color:var(--sev-inaccuracy); }
   html.refined .coach-review .cr-move{
     display:inline-block;
     font-family:'Fraunces',serif;
@@ -1290,9 +1354,15 @@
     font-size:.64rem;letter-spacing:.11em;text-transform:uppercase;
     padding:2px 7px;border-radius:2px;vertical-align:2px;
   }
-  html.refined .coach-review .cr-tag.blunder{ background:rgba(177,84,58,.2);color:#e07a5c; }
-  html.refined .coach-review .cr-tag.mistake{ background:rgba(194,112,63,.2);color:#dc9463; }
-  html.refined .coach-review .cr-tag.inaccuracy{ background:rgba(193,154,73,.16);color:var(--brass); }
+  html.refined .coach-review .cr-tag.blunder{
+    background:rgba(197,68,42,.24);color:var(--sev-blunder-bright);font-weight:600;
+  }
+  html.refined .coach-review .cr-tag.mistake{
+    background:rgba(221,163,32,.18);color:var(--sev-mistake-bright);
+  }
+  html.refined .coach-review .cr-tag.inaccuracy{
+    background:rgba(111,147,168,.18);color:var(--sev-inaccuracy-bright);
+  }
   html.refined .coach-review .cr-moment p{
     margin:5px 0 0;
     font-size:.94rem;
@@ -1886,7 +1956,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16g · design pass (refined/classic)';
+const BUILD = '2026-09-16i · severity colours on the counters';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -3576,6 +3646,15 @@ function buildReplayPanel(rec){
     moveBtns += `<button class="mvbtn${flagged}" data-ply="${i + 1}">${moves[i].san}</button>`;
   }
 
+  /* Only in the refined theme — classic is meant to be untouched. */
+  const sevKeyHtml = (document.documentElement.classList.contains('refined')
+    && rec.annotations && rec.annotations.length) ? `
+    <div class="sev-key">
+      <span class="k-inaccuracy"><i></i>Inaccuracy</span>
+      <span class="k-mistake"><i></i>Mistake</span>
+      <span class="k-blunder"><i></i>Blunder</span>
+    </div>` : '';
+
   const needsReview = !(rec.annotations && rec.annotations.length);
   const reviewBtnHtml = `
     <div class="review-runner">
@@ -3603,10 +3682,10 @@ function buildReplayPanel(rec){
 
   const statsHtml = (typeof rec.accuracy === 'number') ? `
     <div class="acc-stats${staleReview ? ' stale' : ''}">
-      <span class="stat"><b>${rec.accuracy.toFixed(1)}%</b>accuracy</span>
-      <span class="stat"><b>${rec.counts ? rec.counts.blunder : 0}</b>blunders</span>
-      <span class="stat"><b>${rec.counts ? rec.counts.mistake : 0}</b>mistakes</span>
-      <span class="stat"><b>${rec.counts ? rec.counts.inaccuracy : 0}</b>inaccuracies</span>
+      <span class="stat stat-accuracy"><b>${rec.accuracy.toFixed(1)}%</b>accuracy</span>
+      <span class="stat stat-blunder${(rec.counts && rec.counts.blunder) ? '' : ' is-zero'}"><b>${rec.counts ? rec.counts.blunder : 0}</b>blunders</span>
+      <span class="stat stat-mistake${(rec.counts && rec.counts.mistake) ? '' : ' is-zero'}"><b>${rec.counts ? rec.counts.mistake : 0}</b>mistakes</span>
+      <span class="stat stat-inaccuracy${(rec.counts && rec.counts.inaccuracy) ? '' : ' is-zero'}"><b>${rec.counts ? rec.counts.inaccuracy : 0}</b>inaccuracies</span>
       ${rec.openingName ? `<span class="stat opening"><b>${escapeHtml(rec.openingName)}</b>opening</span>` : ''}
     </div>` : '';
 
@@ -3635,6 +3714,7 @@ function buildReplayPanel(rec){
         <div class="replay-note" id="rbnote-${rec.id}"></div>
       </div>
       <div>
+        ${sevKeyHtml}
         <div class="replay-moves" id="rbmoves-${rec.id}">${moveBtns}</div>
         <div class="analysis-card" style="margin-top:14px;">
           <h3>Coach's review</h3>
