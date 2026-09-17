@@ -1726,6 +1726,67 @@
     html.modern header{padding:11px 12px;}
   }
 
+
+  /* ---- Match setup: two compact labelled boxes side by side ----
+     The wrapper is display:contents outside Modern, so Classic and Refined
+     keep the original stacked rows exactly. */
+  .setup-fields{display:contents;}
+  html.modern .setup-fields{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  html.modern .setup-title{display:none;}
+  html.modern .setup-fields .field{
+    position:relative;
+    background:var(--felt-800);
+    border-radius:10px;
+    padding:10px 12px;
+    margin:0;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    gap:3px;
+  }
+  html.modern .setup-fields label{
+    font-size:.64rem;
+    letter-spacing:.07em;
+    text-transform:uppercase;
+    color:#7a7364;
+    margin:0;
+  }
+  html.modern .setup-fields select{
+    appearance:none;
+    -webkit-appearance:none;
+    background:none;
+    border:none;
+    border-radius:0;
+    min-height:0;
+    padding:0 18px 0 0;
+    width:100%;
+    font-family:'Inter',sans-serif;
+    font-size:.92rem;
+    color:var(--ivory);
+    text-overflow:ellipsis;
+  }
+  /* appearance:none removes the native arrow, so draw one. */
+  html.modern .setup-fields .field::after{
+    content:'';
+    position:absolute;
+    right:13px;
+    bottom:17px;
+    width:6px;height:6px;
+    border-right:1.5px solid #7a7364;
+    border-bottom:1.5px solid #7a7364;
+    transform:rotate(45deg);
+    pointer-events:none;
+  }
+  html.modern .setup-fields #engineStatus{margin-top:3px;}
+  @media (max-width:420px){
+    html.modern .setup-fields select{font-size:.86rem;}
+  }
+
 </style>
 </head>
 <body>
@@ -1768,7 +1829,8 @@
       </div>
 
       <div class="panel">
-        <h2>Match setup</h2>
+        <h2 class="setup-title">Match setup</h2>
+        <div class="setup-fields">
         <div class="field">
           <label for="eloSelect">Bot strength</label>
           <select id="eloSelect">
@@ -1790,6 +1852,7 @@
             <option value="w" selected>White</option>
             <option value="b">Black</option>
           </select>
+        </div>
         </div>
         <button class="btn" id="newGameBtn">New game</button>
 
@@ -2380,7 +2443,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17g · modern skin + compact header';
+const BUILD = '2026-09-17h · paired setup boxes';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -7530,6 +7593,21 @@ async function runSelfTests(){
     } finally {
       setTheme(before === 'classic' || before === 'refined' ? before : 'modern');
     }
+  });
+
+  check('match setup keeps both selects wired in every appearance', () => {
+    const elo = document.getElementById('eloSelect');
+    const col = document.getElementById('colorSelect');
+    if (!elo || !col) return 'a setup select is missing';
+    if (!elo.options.length || !col.options.length) return 'a select has no options';
+    // The wrapper must not have orphaned them from the panel.
+    const wrap = document.querySelector('.setup-fields');
+    if (!wrap) return 'setup wrapper missing';
+    if (!wrap.contains(elo) || !wrap.contains(col)) return 'selects are outside the wrapper';
+    if (!document.getElementById('newGameBtn')) return 'New game button missing';
+    if (document.getElementById('newGameBtn').closest('.setup-fields'))
+      return 'New game button should sit outside the two boxes';
+    return true;
   });
 
   check('no two top-level functions share a name', () => {
