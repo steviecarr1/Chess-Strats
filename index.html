@@ -1649,7 +1649,83 @@
     width:34px;height:34px;border-radius:9px;
   }
   html.modern .sound-btn:hover{background:var(--felt-800);color:var(--ivory);}
-  html.modern #volSlider{width:56px;}
+  /* The native range never looked right crammed into the header. Modern
+     shows the mute icon only; the slider lives in Settings, where the
+     Settings copy stays in sync with it. */
+  html.modern #volSlider{display:none;}
+  html.modern #volSlider2{
+    -webkit-appearance:none;appearance:none;
+    width:100%;max-width:280px;height:4px;border-radius:2px;
+    background:var(--felt-700);outline:none;cursor:pointer;margin-top:4px;
+  }
+  html.modern #volSlider2::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:16px;height:16px;border-radius:50%;
+    background:var(--brass-bright);border:none;cursor:pointer;
+  }
+  html.modern #volSlider2::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;
+    background:var(--brass-bright);border:none;cursor:pointer;
+  }
+
+  /* ---- Handbook: make the sub-nav a continuation of the header bar ---- */
+  html.modern .hb-nav{
+    background:var(--felt-900);
+    border:none;
+    border-radius:12px;
+    padding:0 15px;
+    margin:0 0 20px;
+    gap:17px;
+    box-shadow:none;
+  }
+  html.modern .hb-nav button{
+    background:none;
+    border:none;
+    border-bottom:2px solid transparent;
+    border-radius:0;
+    color:var(--ivory-dim);
+    font-family:'Fraunces',serif;
+    font-size:.9rem;
+    font-weight:400;
+    padding:13px 0 11px;
+    white-space:nowrap;
+  }
+  html.modern .hb-nav button.active{
+    background:none;
+    color:var(--brass-bright);
+    border-bottom-color:var(--brass-bright);
+  }
+  /* The big ruled heading fought the bar above it. */
+  html.modern .hb-section h2{
+    font-size:1.15rem;
+    border-bottom:none;
+    padding-bottom:0;
+    margin-bottom:8px;
+  }
+  html.modern .hb-intro{font-size:.88rem;margin-bottom:16px;}
+  /* Search and filters become one surface, like the setup boxes. */
+  html.modern .op-search-wrap{
+    background:var(--felt-900);
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:14px;
+  }
+  html.modern #opSearch{
+    background:var(--felt-800);
+    border:none;
+    border-radius:10px;
+    width:100%;
+    min-height:44px;
+  }
+  html.modern .op-filters{margin-top:10px;}
+  html.modern .op-filter{
+    background:var(--felt-800);
+    border:none;
+    border-radius:20px;
+    min-height:36px;
+    color:var(--ivory-dim);
+  }
+  html.modern .op-filter.active{background:var(--brass);color:#1a1710;}
 
   html.modern nav.tabs{
     background:var(--felt-900);
@@ -1993,6 +2069,10 @@
           Running build: <strong id="buildStamp">—</strong>
         </p>
         <div class="field" style="margin-top:14px;">
+          <label for="volSlider2">Sound volume</label>
+          <input id="volSlider2" type="range" min="0" max="100" step="5" aria-label="Volume">
+        </div>
+        <div class="field">
           <label for="themeSelect">Appearance</label>
           <select id="themeSelect">
             <option value="modern">Modern — flat surfaces, rounded corners, compact header</option>
@@ -2443,7 +2523,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17h · paired setup boxes';
+const BUILD = '2026-09-17i · handbook flow + volume in settings';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -6645,8 +6725,12 @@ function refreshSoundUI(){
   btn.textContent = on ? (sound.getVolume() > 0.5 ? '🔊' : '🔉') : '🔇';
   btn.classList.toggle('muted', !on);
   btn.title = on ? 'Mute sound' : 'Unmute sound';
-  slider.value = Math.round(sound.getVolume() * 100);
+  const level = Math.round(sound.getVolume() * 100);
+  slider.value = level;
   slider.disabled = !on;
+  // The Settings copy of the control mirrors the header one.
+  const slider2 = document.getElementById('volSlider2');
+  if (slider2){ slider2.value = level; slider2.disabled = !on; }
 }
 
 document.getElementById('muteBtn').addEventListener('click', () => {
@@ -6664,6 +6748,18 @@ document.getElementById('volSlider').addEventListener('input', (e) => {
 document.getElementById('volSlider').addEventListener('change', () => {
   if (sound.isEnabled()) sound.move();
 });
+
+const volSlider2 = document.getElementById('volSlider2');
+if (volSlider2){
+  volSlider2.addEventListener('input', (e) => {
+    sound.unlock();
+    sound.setVolume(parseInt(e.target.value, 10) / 100);
+    refreshSoundUI();
+  });
+  volSlider2.addEventListener('change', () => {
+    if (sound.isEnabled()) sound.move();
+  });
+}
 
 refreshSoundUI();
 
@@ -7608,6 +7704,29 @@ async function runSelfTests(){
     if (document.getElementById('newGameBtn').closest('.setup-fields'))
       return 'New game button should sit outside the two boxes';
     return true;
+  });
+
+  check('both volume controls stay in sync', () => {
+    const a = document.getElementById('volSlider');
+    const b = document.getElementById('volSlider2');
+    if (!a) return 'header slider missing';
+    if (!b) return 'settings slider missing';
+    const startVol = sound.getVolume();
+    const startOn = sound.isEnabled();
+    try{
+      sound.setVolume(0.4);
+      refreshSoundUI();
+      if (a.value !== '40' || b.value !== '40')
+        return 'not synced: header ' + a.value + ', settings ' + b.value;
+      sound.setEnabled(false);
+      refreshSoundUI();
+      if (!a.disabled || !b.disabled) return 'muting should disable both';
+      return true;
+    } finally {
+      sound.setEnabled(startOn);
+      sound.setVolume(startVol);
+      refreshSoundUI();
+    }
   });
 
   check('no two top-level functions share a name', () => {
