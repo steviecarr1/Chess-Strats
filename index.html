@@ -502,6 +502,7 @@
     color:var(--brass);font-size:.74rem;text-transform:uppercase;
     letter-spacing:.06em;margin-right:6px;
   }
+  .bot-book{color:var(--ivory-dim);font-size:.86rem;}
   .puzzle-explain .px-why{color:var(--ivory);}
   .puzzle-explain .px-legend{
     font-size:.78rem;color:var(--ivory-dim);
@@ -2032,7 +2033,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-16j · export download fix';
+const BUILD = '2026-09-17a · bot opening book';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -2784,6 +2785,7 @@ document.getElementById('newGameBtn').addEventListener('click', () => {
   evalTrace = [];
   gameActive = true;
   botStyle = STYLE_KEYS[Math.floor(Math.random() * STYLE_KEYS.length)];
+  lastBookOpening = null;
   document.getElementById('resignBtn').disabled = false;
   document.getElementById('undoBtn').disabled = true;
   renderBoard();
@@ -2916,6 +2918,8 @@ async function runAnalysis(resultText){
     botElo,
     botStyle,
     botStyleName: botStyle ? BOT_STYLES[botStyle].name : null,
+    botOpening: lastBookOpening ? lastBookOpening.name : null,
+    botOpeningEco: lastBookOpening ? lastBookOpening.eco : null,
     botStyleBlurb: botStyle ? BOT_STYLES[botStyle].blurb : null,
     pgn,
     moments: moments.map(m => ({ moveNumber:m.moveNumber, san:m.san, color:m.color, colorCode:m.colorCode, magnitude:m.magnitude, severity:m.severity })),
@@ -4193,7 +4197,9 @@ function buildReplayPanel(rec){
 
   const styleHtml = rec.botStyleName ? `
     <div class="style-note">
-      <strong>Opponent style: ${escapeHtml(rec.botStyleName)}</strong>
+      <strong>Opponent style: ${escapeHtml(rec.botStyleName)}</strong>${rec.botOpening
+        ? `<br><span class="bot-book">It was following the ${escapeHtml(rec.botOpening)}${rec.botOpeningEco ? ' (' + escapeHtml(rec.botOpeningEco) + ')' : ''} from the handbook.</span>`
+        : ''}
       ${escapeHtml(rec.botStyleBlurb || '')}
     </div>` : '';
 
@@ -5788,6 +5794,7 @@ const ENGINE_TIERS = {
 };
 
 let engineConfigured = null; // remembers the last UCI_Elo we applied
+let lastBookOpening = null;  // most recent opening the bot was following
 
 function candidateScore(cand){
   if (cand.mateIn !== null && cand.mateIn !== undefined){
@@ -5796,7 +5803,122 @@ function candidateScore(cand){
   return cand.cp === null ? 0 : cand.cp;
 }
 
+/* ============================================================
+   BOT OPENING BOOK
+   The bot currently plays engine moves from move 1, which is why its
+   openings look nothing like a human's. This indexes the same 81 lines
+   the Handbook already uses, keyed by POSITION rather than move number
+   so transpositions are recognised.
+   ============================================================ */
+
+let BOT_BOOK = null;   // built lazily: fen-without-clocks -> [entries]
+                       // (NOT OPENING_BOOK — the review code already uses that
+                       //  name for its sequence-based opening namer.)
+
+/* Strip the halfmove/fullmove counters so two routes to the same position
+   share a key. Castling and en-passant rights stay: they're real differences. */
+function bookKey(fen){
+  const p = fen.split(' ');
+  return p.slice(0, 4).join(' ');
+}
+
+function buildOpeningBook(){
+  const book = {};
+  for (const [eco, name, side, line] of OPENING_LIBRARY){
+    const g = new Chess();
+    const sans = line.trim().split(/\s+/);
+    for (let ply = 0; ply < sans.length; ply++){
+      const key = bookKey(g.fen());
+      const mv = g.move(sans[ply]);
+      if (!mv) break;                       // invalid line: stop, don't poison the book
+      (book[key] = book[key] || []).push({
+        uci: mv.from + mv.to + (mv.promotion || ''),
+        san: mv.san,
+        eco, name, side, ply
+      });
+    }
+  }
+  return book;
+}
+
+function getOpeningBook(){
+  if (!BOT_BOOK) BOT_BOOK = buildOpeningBook();
+  return BOT_BOOK;
+}
+
+/* Which openings a personality reaches for. Matched against the opening's
+   NAME, so it degrades gracefully: no match just means no preference. */
+const STYLE_OPENING_TASTE = {
+  aggressive:  /gambit|attack|sicilian|king's indian|dutch|latvian|danish|smith-morra|grand prix|wing/i,
+  gambiteer:   /gambit|danish|smith-morra|blackmar|budapest|benko|latvian|evans|king's gambit/i,
+  positional:  /english|r[eé]ti|catalan|queen's gambit|london|slav|caro-kann|nimzo|italian|ruy/i,
+  defensive:   /caro-kann|french|slav|petro[vf]|philidor|london|stonewall|scandinavian|berlin|solid/i
+};
+
+/* How far into theory each tier knows, and how likely it is to wander off
+   on any given move. A weak bot that played ten perfect book moves and then
+   collapsed would be both unrealistic and useless for review, so the weak
+   tiers leave early and often — the way a real weak player does. */
+const BOOK_TIERS = {
+  400:  { maxPly: 4,  leaveChance: 0.45 },
+  600:  { maxPly: 5,  leaveChance: 0.38 },
+  800:  { maxPly: 6,  leaveChance: 0.30 },
+  1000: { maxPly: 8,  leaveChance: 0.24 },
+  1200: { maxPly: 10, leaveChance: 0.18 },
+  1600: { maxPly: 14, leaveChance: 0.10 },
+  2000: { maxPly: 18, leaveChance: 0.05 },
+  2400: { maxPly: 24, leaveChance: 0.02 },
+  9999: { maxPly: 30, leaveChance: 0 }
+};
+
+/* Pick a book move for the position, or null to hand over to the engine. */
+function chooseBookMove(g, elo, styleKey){
+  const tier = BOOK_TIERS[elo] || BOOK_TIERS[1200];
+  const ply = g.history().length;
+  if (ply >= tier.maxPly) return null;
+  if (Math.random() < tier.leaveChance) return null;
+
+  const entries = getOpeningBook()[bookKey(g.fen())];
+  if (!entries || !entries.length) return null;
+
+  // Only moves that are actually legal here (guards against a bad key match).
+  const legal = new Set(g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')));
+  let pool = entries.filter(e => legal.has(e.uci));
+  if (!pool.length) return null;
+
+  // Prefer openings matching the bot's personality, if any qualify.
+  const taste = STYLE_OPENING_TASTE[styleKey];
+  if (taste){
+    const liked = pool.filter(e => taste.test(e.name));
+    if (liked.length) pool = liked;
+  }
+
+  // Weight by how many library lines share the move, so main lines come up
+  // more often than sidelines, without ever becoming deterministic.
+  const counts = {};
+  pool.forEach(e => { counts[e.uci] = (counts[e.uci] || 0) + 1; });
+  const uciList = Object.keys(counts);
+  const total = uciList.reduce((s, u) => s + counts[u], 0);
+  let roll = Math.random() * total;
+  let chosen = uciList[0];
+  for (const u of uciList){
+    roll -= counts[u];
+    if (roll <= 0){ chosen = u; break; }
+  }
+  const entry = pool.find(e => e.uci === chosen);
+  return { uci: chosen, name: entry.name, eco: entry.eco };
+}
+
 async function chooseEngineMove(g, elo, styleKey){
+  // Theory first: a human opponent plays known moves, not engine picks.
+  try{
+    const book = chooseBookMove(g, elo, styleKey);
+    if (book){
+      lastBookOpening = { name: book.name, eco: book.eco };
+      return book.uci;
+    }
+  } catch(e){ console.error('book lookup failed', e); }
+
   const engine = await loadEngine();
   const tier = ENGINE_TIERS[elo] || ENGINE_TIERS[1200];
 
@@ -6330,6 +6452,77 @@ async function runSelfTests(){
     const broken = followUpFacts('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
       { san:'e4' }, ['Qh8', 'Zz9']);
     if (!Array.isArray(broken) || broken.length !== 0) return 'broken line not handled';
+    return true;
+  });
+
+  check('opening book indexes every library line', () => {
+    const book = getOpeningBook();
+    const keys = Object.keys(book);
+    if (keys.length < 200) return 'book looks too small: ' + keys.length + ' positions';
+    // The start position must offer several distinct first moves.
+    const start = book[bookKey(new Chess().fen())];
+    if (!start || !start.length) return 'start position missing from book';
+    const firsts = new Set(start.map(e => e.san));
+    if (firsts.size < 3) return 'only ' + firsts.size + ' distinct first moves';
+    return true;
+  });
+
+  check('every book move is legal in its own position', () => {
+    const book = getOpeningBook();
+    const bad = [];
+    for (const key of Object.keys(book)){
+      const g = new Chess(key + ' 0 1');
+      const legal = new Set(g.moves({ verbose:true }).map(m => m.from + m.to + (m.promotion || '')));
+      for (const e of book[key]){
+        if (!legal.has(e.uci)){ bad.push(e.name + ' ' + e.san); break; }
+      }
+      if (bad.length > 3) break;
+    }
+    return bad.length === 0 ? true : bad.join('; ');
+  });
+
+  check('book recognises transpositions', () => {
+    // 1.d4 Nf6 2.c4 and 1.c4 Nf6 2.d4 reach the same position; both must
+    // resolve to the same book key, which is the point of keying on FEN.
+    const a = new Chess(); ['d4','Nf6','c4'].forEach(m => a.move(m));
+    const b = new Chess(); ['c4','Nf6','d4'].forEach(m => b.move(m));
+    return bookKey(a.fen()) === bookKey(b.fen()) ? true
+      : 'keys differ:\n' + bookKey(a.fen()) + '\n' + bookKey(b.fen());
+  });
+
+  check('book respects tier depth and always returns legal moves', () => {
+    const g = new Chess();
+    // 9999 never leaves book early, so this is deterministic enough to check.
+    for (let i = 0; i < 6; i++){
+      const pick = chooseBookMove(g, 9999, null);
+      if (!pick) break;
+      const legal = g.moves({ verbose:true }).map(m => m.from + m.to + (m.promotion || ''));
+      if (legal.indexOf(pick.uci) === -1) return 'illegal book move at ply ' + i + ': ' + pick.uci;
+      g.move({ from: pick.uci.slice(0,2), to: pick.uci.slice(2,4), promotion: pick.uci[4] });
+    }
+    if (g.history().length === 0) return 'book produced no moves at all';
+
+    // A 400 bot must be out of book well before a 2400 bot.
+    const deep = new Chess();
+    for (let i = 0; i < 6; i++){
+      const mv = deep.moves()[0];
+      deep.move(mv);
+    }
+    if (chooseBookMove(deep, 400, null) !== null && deep.history().length >= BOOK_TIERS[400].maxPly){
+      return '400 bot still in book past its depth limit';
+    }
+    return true;
+  });
+
+  check('style taste never eliminates every candidate', () => {
+    const g = new Chess();
+    for (const style of Object.keys(BOT_STYLES)){
+      let found = false;
+      for (let i = 0; i < 40; i++){        // leaveChance is random; retry
+        if (chooseBookMove(g, 9999, style)){ found = true; break; }
+      }
+      if (!found) return style + ' never produced a book move from the start position';
+    }
     return true;
   });
 
