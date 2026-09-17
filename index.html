@@ -8,8 +8,13 @@
    Set before first paint so switching back doesn't flash the new theme. */
 (function(){
   try{
-    if (localStorage.getItem('theme') === 'classic')
-      document.documentElement.classList.remove('refined');
+    /* Three appearances: modern (default), refined, classic. Applied before
+       first paint so switching never flashes the wrong theme. */
+    var t = localStorage.getItem('theme');
+    if (t !== 'classic' && t !== 'refined' && t !== 'modern') t = 'modern';
+    var root = document.documentElement;
+    root.classList.toggle('refined', t !== 'classic');
+    root.classList.toggle('modern', t === 'modern');
   } catch(e){}
 })();
 </script>
@@ -1578,6 +1583,149 @@
   }
 
 
+
+  /* =========================================================================
+     MODERN SKIN  (html.modern, layered on top of .refined)
+     Same layout as Classic — only tokens, radii, borders and spacing change,
+     plus the compact one-line header. Classic and Refined are untouched, so
+     Settings can still put everything back.
+     ========================================================================= */
+  html.modern{
+    --felt-950:#14130f;
+    --felt-900:#1b1a15;
+    --felt-800:#232118;
+    --felt-700:#2b2820;
+    --ivory:#f0ece1;
+    --ivory-dim:#9b9484;
+    --brass:#d4a95c;
+    --brass-bright:#e3bd77;
+    --emerald:#4c7a5e;
+    --emerald-bright:#6f9c80;
+    --ember:#cc8d72;
+    --square-light:#e6d5b8;
+    --square-dark:#7a5f42;
+    --square-select:#d4a95c;
+    --square-move:#9bb082;
+    --radius:10px;
+  }
+  /* Flat ground: the two radial washes read as dated on a phone. */
+  html.modern body{background:#14130f;}
+
+  /* ---- Header option C: one line, tabs attached to the same surface ---- */
+  html.modern header{
+    background:var(--felt-900);
+    border:none;
+    border-radius:12px 12px 0 0;
+    padding:12px 15px;
+    margin-bottom:0;
+    align-items:center;
+    gap:10px;
+    flex-wrap:nowrap;
+  }
+  html.modern header > div:first-child{
+    display:flex;align-items:center;gap:9px;min-width:0;
+  }
+  html.modern header h1{
+    font-size:1.02rem;
+    font-weight:500;
+    letter-spacing:-.005em;
+    border-bottom:none;
+    display:flex;align-items:center;gap:9px;
+    white-space:nowrap;
+  }
+  /* The accent dot replaces the monogram. */
+  html.modern header h1::before{
+    content:'';
+    width:7px;height:7px;border-radius:50%;
+    background:var(--brass);flex-shrink:0;
+  }
+  html.modern header h1 span{display:none;}   /* "— a chess trainer" */
+  html.modern header p{display:none;}         /* the subtitle line */
+  html.modern .sound-control{
+    margin-left:auto;border:none;background:none;padding:0;gap:9px;
+  }
+  html.modern .sound-btn{
+    background:none;border:none;color:var(--ivory-dim);font-size:1rem;
+    width:34px;height:34px;border-radius:9px;
+  }
+  html.modern .sound-btn:hover{background:var(--felt-800);color:var(--ivory);}
+  html.modern #volSlider{width:56px;}
+
+  html.modern nav.tabs{
+    background:var(--felt-900);
+    border-radius:0 0 12px 12px;
+    border-bottom:none;
+    margin:0 0 22px;
+    padding:0 15px;
+    gap:17px;
+  }
+  html.modern nav.tabs button{
+    font-size:.86rem;
+    padding:0 0 10px;
+    border-bottom-width:2px;
+  }
+
+  /* ---- Surfaces instead of outlined boxes ---- */
+  html.modern .panel{
+    background:var(--felt-900);
+    border:none;
+    border-radius:12px;
+    padding:18px;
+  }
+  html.modern .board-frame{
+    background:none;
+    padding:0;
+    border-radius:12px;
+    overflow:hidden;
+    box-shadow:none;
+  }
+  html.modern .status-line{border-radius:10px;}
+
+  /* ---- Controls ---- */
+  html.modern .btn{
+    background:var(--brass);
+    border:none;
+    border-radius:10px;
+    color:#1a1710;
+    font-weight:500;
+    min-height:44px;
+  }
+  html.modern .btn.secondary{
+    background:var(--felt-800);
+    border:none;
+    color:var(--ivory);
+  }
+  html.modern .btn.secondary:hover{background:var(--felt-700);}
+  html.modern .btn.danger{border:none;}
+  html.modern select,
+  html.modern input[type="text"],
+  html.modern input[type="password"],
+  html.modern input[type="search"]{
+    background:var(--felt-900);
+    border:none;
+    border-radius:10px;
+    min-height:44px;
+  }
+
+  /* ---- Cards across the other tabs pick up the same treatment ---- */
+  html.modern .acc-item,
+  html.modern .opening-card,
+  html.modern .history-row,
+  html.modern .puzzle-explain,
+  html.modern .del-confirm,
+  html.modern .undo-bar{
+    border-color:transparent;
+    background:var(--felt-900);
+    border-radius:10px;
+  }
+  html.modern .acc-item{overflow:hidden;}
+  html.modern .puzzle-explain{border-left:3px solid var(--brass);}
+
+  @media (max-width:700px){
+    html.modern nav.tabs{gap:15px;padding:0 12px;}
+    html.modern header{padding:11px 12px;}
+  }
+
 </style>
 </head>
 <body>
@@ -1784,6 +1932,7 @@
         <div class="field" style="margin-top:14px;">
           <label for="themeSelect">Appearance</label>
           <select id="themeSelect">
+            <option value="modern">Modern — flat surfaces, rounded corners, compact header</option>
             <option value="refined">Refined — typeset reviews, graded severity colours</option>
             <option value="classic">Classic — the original look</option>
           </select>
@@ -2231,7 +2380,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17f · mobile analysis rows';
+const BUILD = '2026-09-17g · modern skin + compact header';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -4753,7 +4902,9 @@ function refreshSettingsView(){
   if (stamp) stamp.textContent = BUILD;
   const themeSel = document.getElementById('themeSelect');
   if (themeSel){
-    themeSel.value = document.documentElement.classList.contains('refined') ? 'refined' : 'classic';
+    const root = document.documentElement;
+    themeSel.value = root.classList.contains('modern') ? 'modern'
+      : root.classList.contains('refined') ? 'refined' : 'classic';
     if (!themeSel.dataset.wired){
       themeSel.dataset.wired = '1';
       themeSel.addEventListener('change', e => setTheme(e.target.value));
@@ -7360,6 +7511,27 @@ async function runSelfTests(){
     return /1W · 1L · 1D/.test(rec) ? true : 'record: ' + rec;
   });
 
+  check('all three appearances resolve and restore', () => {
+    const root = document.documentElement;
+    const before = localStorage.getItem('theme');
+    try{
+      setTheme('modern');
+      if (!root.classList.contains('modern') || !root.classList.contains('refined'))
+        return 'modern should layer on refined';
+      setTheme('refined');
+      if (root.classList.contains('modern')) return 'modern class not cleared';
+      if (!root.classList.contains('refined')) return 'refined not applied';
+      setTheme('classic');
+      if (root.classList.contains('refined') || root.classList.contains('modern'))
+        return 'classic should clear both';
+      setTheme('nonsense');
+      if (!root.classList.contains('modern')) return 'unknown value should fall back to modern';
+      return true;
+    } finally {
+      setTheme(before === 'classic' || before === 'refined' ? before : 'modern');
+    }
+  });
+
   check('no two top-level functions share a name', () => {
     // A duplicate declaration silently overwrites the earlier one, which is
     // how the puzzle explanation ended up numbering a FEN character by
@@ -8952,11 +9124,15 @@ function reviewMarkup(text, fallback){
 }
 
 function setTheme(mode){
-  const refined = mode !== 'classic';
+  /* Three appearances now. Modern layers on top of Refined, so it keeps the
+     typeset reviews and only changes tokens, radii and the header. */
+  const valid = (mode === 'classic' || mode === 'refined' || mode === 'modern') ? mode : 'modern';
+  const refined = valid !== 'classic';
   document.documentElement.classList.toggle('refined', refined);
-  try{ localStorage.setItem('theme', refined ? 'refined' : 'classic'); } catch(e){}
+  document.documentElement.classList.toggle('modern', valid === 'modern');
+  try{ localStorage.setItem('theme', valid); } catch(e){}
   const sel = document.getElementById('themeSelect');
-  if (sel) sel.value = refined ? 'refined' : 'classic';
+  if (sel) sel.value = valid;
   // Repaint any open review so it switches format immediately.
   const view = document.getElementById('view-analysis');
   if (view && view.classList.contains('active')) renderAnalysisView();
