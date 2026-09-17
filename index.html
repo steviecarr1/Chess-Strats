@@ -487,6 +487,37 @@
   .acc-del:hover, .hr-del:hover{color:var(--ember);background:var(--felt-800);}
   .hr-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 
+  .puzzle-explain{
+    margin:12px 0 4px;
+    padding:14px 16px;
+    background:var(--felt-900);
+    border:1px solid var(--felt-700);
+    border-left:3px solid var(--brass);
+    border-radius:5px;
+    font-size:.92rem;
+    line-height:1.6;
+    display:flex;flex-direction:column;gap:9px;
+  }
+  .puzzle-explain .px-label{
+    color:var(--brass);font-size:.74rem;text-transform:uppercase;
+    letter-spacing:.06em;margin-right:6px;
+  }
+  .puzzle-explain .px-why{color:var(--ivory);}
+  .puzzle-explain .px-your{color:var(--ivory-dim);}
+  .puzzle-explain .px-line{
+    color:var(--ivory-dim);font-family:'Georgia',serif;font-size:.9rem;
+  }
+  .puzzle-explain .px-cost{
+    color:var(--ivory-dim);border-top:1px solid var(--felt-700);padding-top:9px;
+  }
+  .puzzle-explain .px-eval{color:var(--ivory);font-weight:600;}
+  .puzzle-explain .px-loading{
+    display:flex;align-items:center;gap:9px;color:var(--ivory-dim);
+  }
+  @media (max-width:700px){
+    .puzzle-explain{font-size:.95rem;padding:13px 14px;}
+  }
+
   .del-confirm{
     background:var(--felt-800);
     border-top:1px solid var(--felt-700);
@@ -2128,7 +2159,7 @@ function loadEngine(){
              it as 0.00 makes a position look dead level and hides real
              swings. */
           analyse(fen, { depth = 12, movetime, timeout } = {}){
-            let scoreCp = null, mateIn = null, pv = null;
+            let scoreCp = null, mateIn = null, pv = null, pvLine = [];
             return search({
               fen,
               // Analysis must always run at full strength, single line.
@@ -2149,13 +2180,19 @@ function loadEngine(){
                 if (mate){ mateIn = parseInt(mate[1], 10); scoreCp = null; }
                 const pvm = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
                 if (pvm) pv = pvm[1];
+                // Whole principal variation, not just its first move: the
+                // continuation is what explains WHY a move is good.
+                const full = line.match(/ pv (.+)$/);
+                if (full) pvLine = full[1].trim().split(/\s+/)
+                  .filter(m => /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m));
               }
             }).then(({ uci, partial }) => ({
               bestMove: uci === '(none)' ? null : uci,
               scoreCp,
               mateIn,
               partial,
-              pv: pv || (uci === '(none)' ? null : uci)
+              pv: pv || (uci === '(none)' ? null : uci),
+              pvLine
             }));
           },
 
@@ -3555,6 +3592,7 @@ function loadPuzzle(idx){
   document.getElementById('puzzleNextBtn').disabled = false;
   document.getElementById('puzzleStatus').textContent =
     `${p.sideToMove === 'w' ? 'White' : 'Black'} to move — find a better move than ${p.yourMove}.`;
+  clearPuzzleExplanation();
   renderPuzzleMeta(p);
   practiceAttemptClean = true;
   renderPuzzleBoard();
@@ -3609,6 +3647,248 @@ function onPuzzleSquareClick(sq){
   }
 }
 
+/* ============================================================
+   PUZZLE EXPLANATIONS
+   "The engine's pick was d6" says what, not why. Everything below is
+   grounded in two things only: what the pieces actually do on the board,
+   and what the engine's own lines say. Nothing is invented — if we can't
+   establish a reason, we say so rather than inventing strategy.
+   ============================================================ */
+
+const PIECE_WORD = { p:'pawn', n:'knight', b:'bishop', r:'rook', q:'queen', k:'king' };
+
+/* Convert a run of UCI moves into readable SAN from a given position. */
+function uciLineToSan(fen, uciMoves, maxPlies = 6){
+  const g = new Chess(fen);
+  const out = [];
+  for (const u of uciMoves.slice(0, maxPlies)){
+    const mv = g.move({ from: u.slice(0,2), to: u.slice(2,4), promotion: u[4] || 'q' });
+    if (!mv) break;
+    out.push(mv.san);
+  }
+  return out;
+}
+
+/* Format a SAN run as "12. Nf3 Bxe5 13. Qd2", numbering from the real move number. */
+function formatLine(fen, sans){
+  if (!sans.length) return '';
+  const parts = fen.split(' ');
+  let num = parseInt(parts[5], 10) || 1;
+  let white = parts[1] === 'w';
+  const chunks = [];
+  sans.forEach((san, i) => {
+    if (white) chunks.push(`${num}. ${san}`);
+    else chunks.push(i === 0 ? `${num}...${san}` : san);
+    if (!white) num++;
+    white = !white;
+  });
+  return chunks.join(' ');
+}
+
+/* What does this move physically do? Capture, check, promote, attack something. */
+function describeMoveAction(fen, uci){
+  const g = new Chess(fen);
+  const mv = g.move({ from: uci.slice(0,2), to: uci.slice(2,4), promotion: uci[4] || 'q' });
+  if (!mv) return null;
+
+  const facts = [];
+  if (mv.flags.includes('p')) facts.push('promotes to a queen');
+  else if (mv.captured) facts.push(`takes the ${PIECE_WORD[mv.captured]} on ${mv.to}`);
+  if (g.in_checkmate()) facts.push('is checkmate');
+  else if (g.in_check()) facts.push('gives check');
+
+  // What the moved piece now attacks that is worth attacking.
+  const VAL = { p:1, n:3, b:3, r:5, q:9, k:0 };
+  const them = mv.color === 'w' ? 'b' : 'w';
+  const attacked = [];
+  for (const sq of squaresAttackedFrom(g, mv.to)){
+    const pc = g.get(sq);
+    if (pc && pc.color === them && VAL[pc.type] > VAL[mv.piece]){
+      attacked.push(`${PIECE_WORD[pc.type]} on ${sq}`);
+    } else if (pc && pc.color === them && pc.type !== 'p' && !isDefended(g, sq, them)){
+      attacked.push(`undefended ${PIECE_WORD[pc.type]} on ${sq}`);
+    }
+  }
+  if (attacked.length === 1) facts.push(`attacks the ${attacked[0]}`);
+  else if (attacked.length > 1) facts.push(`hits the ${attacked.slice(0,2).join(' and the ')} at once`);
+
+  return { move: mv, facts, after: g };
+}
+
+/* Squares a piece standing on `sq` attacks, via legal-move generation. */
+function squaresAttackedFrom(chessObj, sq){
+  const out = [];
+  try{
+    chessObj.moves({ square: sq, verbose: true }).forEach(m => out.push(m.to));
+    // Moves() won't list defended-square captures for the side not to move,
+    // so also probe by colour-flipping the FEN when needed.
+    if (!out.length){
+      const parts = chessObj.fen().split(' ');
+      parts[1] = parts[1] === 'w' ? 'b' : 'w';
+      parts[3] = '-';
+      const probe = new Chess(parts.join(' '));
+      probe.moves({ square: sq, verbose: true }).forEach(m => out.push(m.to));
+    }
+  } catch(e){}
+  return out;
+}
+
+/* Turn a centipawn swing into a plain phrase. */
+function swingPhrase(cpLost){
+  const p = Math.abs(cpLost) / 100;
+  if (p >= 5) return 'a decisive amount';
+  if (p >= 2.5) return `about ${p.toFixed(1)} pawns`;
+  if (p >= 0.8) return `about ${p.toFixed(1)} of a pawn`;
+  return 'a small but real edge';
+}
+
+function evalToMoverCp(res){
+  // analyse() reports from the side-to-move's view. After a move it's the
+  // OPPONENT to move, so negate to keep everything in the mover's terms.
+  if (!res) return null;
+  if (res.mateIn !== null && res.mateIn !== undefined) return res.mateIn > 0 ? -100000 : 100000;
+  if (res.scoreCp === null || res.scoreCp === undefined) return null;
+  return -res.scoreCp;
+}
+
+async function explainPuzzle(p, userUci){
+  const engine = await loadEngine();
+  if (!engine) return null;
+
+  const bestUci = p.bestMove.from + p.bestMove.to + (p.bestMove.promotion || '');
+  const gBest = new Chess(p.fen);
+  const bestMv = gBest.move({ from: p.bestMove.from, to: p.bestMove.to, promotion: p.bestMove.promotion || 'q' });
+  if (!bestMv) return null;
+
+  const bestAction = describeMoveAction(p.fen, bestUci);
+  const bestRes = gBest.game_over() ? null : await engine.analyse(gBest.fen(), { depth: 12, timeout: 8000 });
+  const bestCp = gBest.in_checkmate() ? 100000 : evalToMoverCp(bestRes);
+
+  let userPart = null;
+  if (userUci && userUci !== bestUci){
+    const gUser = new Chess(p.fen);
+    const userMv = gUser.move({ from: userUci.slice(0,2), to: userUci.slice(2,4), promotion: userUci[4] || 'q' });
+    if (userMv){
+      const userRes = gUser.game_over() ? null : await engine.analyse(gUser.fen(), { depth: 12, timeout: 8000 });
+      const userCp = gUser.in_checkmate() ? 100000 : evalToMoverCp(userRes);
+      const refutation = userRes && userRes.pvLine
+        ? uciLineToSan(gUser.fen(), userRes.pvLine, 4) : [];
+      userPart = { mv: userMv, cp: userCp, refutation, refutationFen: gUser.fen() };
+    }
+  }
+
+  const bestLine = bestRes && bestRes.pvLine ? uciLineToSan(gBest.fen(), bestRes.pvLine, 4) : [];
+
+  return buildPuzzleExplanation({
+    p, bestMv, bestAction, bestCp, bestLine, bestLineFen: gBest.fen(), userPart
+  });
+}
+
+function buildPuzzleExplanation({ p, bestMv, bestAction, bestCp, bestLine, bestLineFen, userPart }){
+  const html = [];
+  const moverIsWhite = bestMv.color === 'w';
+
+  // --- why the best move is good ---
+  const facts = bestAction ? bestAction.facts : [];
+  let why;
+  if (facts.length){
+    why = `<strong>${escapeHtml(bestMv.san)}</strong> ${facts.join(', and ')}.`;
+  } else {
+    why = `<strong>${escapeHtml(bestMv.san)}</strong> doesn't win anything immediately — it's a positional improvement rather than a tactic.`;
+  }
+  html.push(`<div class="px-why">${why}</div>`);
+
+  if (bestLine.length){
+    // bestLine starts AFTER the best move, so number the whole sequence from
+    // the original position with the best move at its head.
+    const full = formatLine(p.fen, [bestMv.san, ...bestLine]);
+    html.push(`<div class="px-line"><span class="px-label">The engine expects</span> ${escapeHtml(full)}</div>`);
+  }
+
+  // --- what your move allowed ---
+  if (userPart){
+    const bits = [];
+    const yourFacts = describeMoveAction(p.fen, userPart.mv.from + userPart.mv.to + (userPart.mv.promotion || ''));
+    if (userPart.mv.captured){
+      bits.push(`<strong>${escapeHtml(userPart.mv.san)}</strong> wins the ${PIECE_WORD[userPart.mv.captured]}, but`);
+    } else {
+      bits.push(`<strong>${escapeHtml(userPart.mv.san)}</strong>`);
+    }
+
+    if (userPart.refutation.length){
+      const reply = userPart.refutation[0];
+      bits.push(`lets your opponent answer <strong>${escapeHtml(reply)}</strong>`);
+      if (userPart.refutation.length > 1){
+        bits.push(`(${escapeHtml(formatLine(userPart.refutationFen, userPart.refutation))})`);
+      }
+    } else {
+      bits.push('gives up ground here');
+    }
+    html.push(`<div class="px-your">${bits.join(' ')}.</div>`);
+  }
+
+  // --- the cost, in engine terms ---
+  if (bestCp !== null && userPart && userPart.cp !== null){
+    const diff = bestCp - userPart.cp;
+    if (Math.abs(bestCp) >= 100000 || Math.abs(userPart.cp) >= 100000){
+      html.push(`<div class="px-cost">${bestCp >= 100000
+        ? 'The engine\'s move forces mate. Yours doesn\'t.'
+        : 'Your move walks into a forced mate.'}</div>`);
+    } else if (diff > 30){
+      html.push(`<div class="px-cost"><span class="px-label">The difference</span> ` +
+        `${escapeHtml(swingPhrase(diff))} — ${fmtEvalFor(bestCp, moverIsWhite)} after ${escapeHtml(bestMv.san)}, ` +
+        `${fmtEvalFor(userPart.cp, moverIsWhite)} after ${escapeHtml(userPart.mv.san)}.</div>`);
+    } else {
+      html.push(`<div class="px-cost">Honestly, your move is close. The engine prefers ` +
+        `${escapeHtml(bestMv.san)} by only ${escapeHtml(swingPhrase(diff))}, so this one is a fine choice in a real game.</div>`);
+    }
+  }
+
+  return html.join('');
+}
+
+/* Evaluation as a signed number from the mover's point of view. */
+function fmtEvalFor(cp, moverIsWhite){
+  const pawns = cp / 100;
+  const sign = pawns > 0 ? '+' : '';
+  const who = pawns > 0 ? 'you' : 'your opponent';
+  return `<span class="px-eval">${sign}${pawns.toFixed(1)}</span> (${who} better)`;
+}
+
+function puzzleExplainEl(){
+  let el = document.getElementById('puzzleExplain');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'puzzleExplain';
+    el.className = 'puzzle-explain';
+    const status = document.getElementById('puzzleStatus');
+    if (status && status.parentNode) status.parentNode.insertBefore(el, status.nextSibling);
+  }
+  return el;
+}
+
+function clearPuzzleExplanation(){
+  const el = document.getElementById('puzzleExplain');
+  if (el){ el.innerHTML = ''; el.style.display = 'none'; }
+}
+
+let explainToken = 0;
+async function showPuzzleExplanation(p, userUci){
+  const el = puzzleExplainEl();
+  const token = ++explainToken;
+  el.style.display = '';
+  el.innerHTML = '<div class="px-loading"><div class="spin"></div>Working out why…</div>';
+  try{
+    const html = await explainPuzzle(p, userUci);
+    if (token !== explainToken) return;   // a newer puzzle was loaded meanwhile
+    el.innerHTML = html || '<div class="px-why">Couldn\'t work out a clear reason for this one.</div>';
+  } catch(e){
+    if (token !== explainToken) return;
+    console.error('explain failed', e);
+    el.innerHTML = '<div class="px-why">Couldn\'t reach the engine to explain this one.</div>';
+  }
+}
+
 async function submitPuzzleAttempt(from, to){
   const p = allPuzzles[currentPuzzleIdx];
   const isPromotion = puzzleGame.moves({ square: from, verbose: true })
@@ -3636,8 +3916,9 @@ async function submitPuzzleAttempt(from, to){
     gradePuzzle(p, 1);
     puzzleLastMove = { from, to, wrongSq: to, correctSq: p.bestMove.from === from ? null : p.bestMove.to };
     document.getElementById('puzzleStatus').textContent =
-      `Not quite. The engine's pick was ${p.bestMove.san} (from ${p.bestMove.from} to ${p.bestMove.to}). You'll see this one again.`;
+      `Not quite. The better move was ${p.bestMove.san}. You'll see this one again.`;
   }
+  showPuzzleExplanation(p, from + to + (attemptMove.promotion || ''));
   puzzleSelected = null;
   puzzleTargets = [];
   renderPuzzleBoard();
@@ -3660,6 +3941,7 @@ document.getElementById('puzzleRevealBtn').addEventListener('click', () => {
     `Best move: ${p.bestMove.san} (${p.bestMove.from} → ${p.bestMove.to}). This one will come back.`;
   renderPuzzleMeta(p);
   renderPuzzleBoard();
+  showPuzzleExplanation(p, null);
 });
 
 document.getElementById('puzzleNextBtn').addEventListener('click', () => {
@@ -5947,6 +6229,37 @@ async function runSelfTests(){
 
   check('charts handle an empty series', () => {
     return svgLineChart([]).includes('chart-empty') ? true : 'did not degrade';
+  });
+
+  check('SAN line formatting numbers from the real move number', () => {
+    const fen = 'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 6 5';
+    const white = formatLine(fen, ['d3','O-O','Nc3']);
+    if (!/^5\. d3 O-O 6\. Nc3$/.test(white)) return 'white-to-move: ' + white;
+    const bfen = fen.replace(' w ', ' b ');
+    const black = formatLine(bfen, ['O-O','d3']);
+    if (!/^5\.\.\.O-O 6\. d3$/.test(black)) return 'black-to-move: ' + black;
+    return true;
+  });
+
+  check('move description reports captures, checks and attacks', () => {
+    // Scholar's-mate position: Qxf7 is mate.
+    const mateFen = 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1';
+    const mate = describeMoveAction(mateFen, 'f3f7');
+    if (!mate) return 'mate move not parsed';
+    if (!mate.facts.some(f => /takes the pawn/.test(f))) return 'missed the capture: ' + mate.facts.join('|');
+    if (!mate.facts.some(f => /checkmate/.test(f))) return 'missed mate: ' + mate.facts.join('|');
+
+    // A quiet developing move should produce no capture/check claims.
+    const quiet = describeMoveAction('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 'g1f3');
+    if (quiet.facts.some(f => /takes|check/.test(f))) return 'invented a threat: ' + quiet.facts.join('|');
+    return true;
+  });
+
+  check('swing phrasing never quotes impossible pawn counts', () => {
+    const bad = [50, 250, 800, 5000, 120000]
+      .map(cp => swingPhrase(cp))
+      .filter(s => /\d{2,}(\.\d)? pawns/.test(s));
+    return bad.length === 0 ? true : bad.join('; ');
   });
 
   check('deleting a game removes it and honours the puzzle option', async () => {
