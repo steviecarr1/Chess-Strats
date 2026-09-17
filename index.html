@@ -362,35 +362,6 @@
   @media (max-width:760px){.handbook-grid{grid-template-columns:1fr;}}
 
   .hb-nav{
-      flex-direction:row;
-      gap:4px;
-      overflow-x:auto;
-      overflow-y:visible;
-      max-height:none;
-      top:0;
-      padding:8px 0;
-      margin:0 -12px;
-      padding-left:12px;
-      padding-right:12px;
-      background:var(--felt-950);
-      border-bottom:1px solid var(--felt-700);
-      z-index:5;
-      scrollbar-width:none;
-    }
-    .hb-nav::-webkit-scrollbar{display:none;}
-    .hb-nav button{
-      white-space:nowrap;
-      border-left:none;
-      border-bottom:2px solid transparent;
-      border-radius:4px 4px 0 0;
-      padding:8px 12px;
-    }
-    .hb-nav button.active{
-      border-left-color:transparent;
-      border-bottom-color:var(--brass-bright);
-    }
-  }
-  .hb-nav{
     display:flex;
     flex-direction:column;
     gap:2px;
@@ -417,6 +388,39 @@
   }
   .hb-nav button:hover{background:var(--felt-800);color:var(--ivory);}
   .hb-nav button.active{border-left-color:var(--brass-bright);color:var(--brass-bright);background:var(--felt-800);}
+
+  /* Mobile handbook nav. This block had lost its @media opener, so its rules
+     were applying at every width and then being overridden by the desktop
+     rules above — leaving the mobile nav styled by neither. It must come
+     AFTER those rules to win at the breakpoint. */
+  @media (max-width:700px){
+    .hb-nav{
+      flex-direction:row;
+      gap:4px;
+      overflow-x:auto;
+      overflow-y:visible;
+      max-height:none;
+      top:0;
+      padding:8px 12px;
+      margin:0 -12px;
+      background:var(--felt-950);
+      border-bottom:1px solid var(--felt-700);
+      z-index:5;
+      scrollbar-width:none;
+    }
+    .hb-nav::-webkit-scrollbar{display:none;}
+    .hb-nav button{
+      white-space:nowrap;
+      border-left:none;
+      border-bottom:2px solid transparent;
+      border-radius:4px 4px 0 0;
+      padding:8px 12px;
+    }
+    .hb-nav button.active{
+      border-left-color:transparent;
+      border-bottom-color:var(--brass-bright);
+    }
+  }
 
   .hb-section{display:none;}
   .hb-section.active{display:block;}
@@ -1480,6 +1484,100 @@
     html.refined .coach-review .cr-lede{ font-size:1.1rem; }
   }
 
+
+  /* ===== Mobile analysis rows: last in the sheet so nothing
+     later in the cascade can override the breakpoint rules. ===== */
+  /* ---- Mobile game row. Desktop keeps the original layout: the
+     mobile half is display:none until the breakpoint, and vice versa. ---- */
+  .m-row{display:none;}
+  .day-head{display:none;}
+  .acc-swipe{position:relative;overflow:hidden;}
+  .acc-swipe-action{display:none;}
+  .acc-swipe-track{position:relative;background:var(--felt-900);}
+  .undo-bar{display:none;}
+
+  @media (max-width:700px){
+    .acc-desktop-only{display:none !important;}
+    .m-row{
+      display:flex;flex-direction:column;gap:5px;width:100%;min-width:0;
+    }
+    .acc-head{padding:10px 12px !important;}
+    .acc-head-row .acc-del{display:none;}      /* swipe replaces it */
+    .acc-item{border-left:4px solid var(--felt-700);}
+    .acc-item.outcome-win{border-left-color:var(--emerald-bright);}
+    .acc-item.outcome-loss{border-left-color:var(--ember);}
+    .acc-item.outcome-draw{border-left-color:var(--ivory-dim);}
+
+    .m-top{display:flex;align-items:center;gap:6px;width:100%;}
+    .m-time{font-size:.72rem;color:#7d745f;}
+    .m-opp{
+      margin-left:auto;display:flex;align-items:center;gap:5px;
+      font-size:.72rem;color:var(--ivory-dim);
+    }
+    .m-disc{
+      width:13px;height:13px;border-radius:50%;flex-shrink:0;
+      background:#e9dcc0;border:1px solid var(--ivory);
+    }
+    .m-disc.b{background:var(--felt-800);border-color:#514734;}
+
+    .m-bot{display:flex;align-items:baseline;gap:8px;width:100%;}
+    .m-res{font-family:'Fraunces',serif;font-size:1.19rem;color:var(--ivory);}
+    .m-how{font-size:.78rem;color:var(--ivory-dim);}
+    .m-acc{margin-left:auto;font-size:1rem;font-weight:600;}
+    .m-acc.good{color:var(--emerald-bright);}
+    .m-acc.mid{color:var(--brass);}
+    .m-acc.poor{color:var(--ember);}
+    .m-review{
+      margin-left:auto;font-size:.72rem;color:#7d745f;
+      border:1px solid var(--felt-700);border-radius:20px;padding:2px 9px;
+    }
+
+    .day-head{
+      display:flex;align-items:baseline;justify-content:space-between;
+      padding:14px 2px 6px;
+    }
+    .day-label{
+      font-family:'Fraunces',serif;font-size:.8rem;letter-spacing:.08em;
+      color:var(--brass);
+    }
+    .day-record{font-size:.74rem;color:var(--ivory-dim);}
+
+    /* Swipe: the red panel sits underneath, the track slides over it. */
+    .acc-swipe{background:var(--ember);}
+    .acc-swipe-action{
+      display:flex;position:absolute;top:0;right:0;bottom:0;width:104px;
+      align-items:center;justify-content:center;
+    }
+    .swipe-del{
+      width:100%;height:100%;background:none;border:none;color:#fdeee9;
+      font-family:'Inter',sans-serif;font-size:.8rem;font-weight:600;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:3px;cursor:pointer;
+    }
+    .acc-swipe-track{
+      transition:transform .22s ease;touch-action:pan-y;
+      border-right:1px solid var(--felt-700);
+    }
+
+    .undo-bar{
+      display:flex;align-items:center;gap:10px;
+      border:1px dashed var(--felt-700);border-radius:var(--radius);
+      background:var(--felt-900);padding:12px;margin-bottom:10px;
+      font-size:.82rem;color:var(--ivory-dim);
+    }
+    .undo-btn{
+      margin-left:auto;background:none;border:1px solid var(--brass);
+      border-radius:var(--radius);color:var(--brass-bright);
+      font-family:'Inter',sans-serif;font-size:.8rem;font-weight:600;
+      padding:8px 16px;cursor:pointer;
+    }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .acc-swipe-track{transition:none;}
+  }
+
+
 </style>
 </head>
 <body>
@@ -2133,7 +2231,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17e · deeper match analysis';
+const BUILD = '2026-09-17f · mobile analysis rows';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -4166,6 +4264,198 @@ function movesFromPgn(pgn){
   return temp.history({ verbose: true });
 }
 
+/* ============================================================
+   MOBILE GAME ROW
+   The desktop row is a single flex line of pills. At 390px every pill
+   wraps and two and a half games fill the screen. Rather than change
+   the desktop layout, each row carries a second, mobile-only
+   presentation and CSS picks one. Desktop markup is untouched.
+   ============================================================ */
+
+/* "Checkmate — White wins." is the tallest thing in the row and repeats
+   what the result already says. Compress it to the fact you don't have. */
+function rowResultShort(g){
+  const moveCount = g.pgn
+    ? Math.max(1, Math.ceil(g.pgn.replace(/\{[^}]*\}/g, '').trim().split(/\s+/)
+        .filter(t => !/^\d+\.$/.test(t) && !/^(1-0|0-1|1\/2-1\/2|\*)$/.test(t)).length / 2))
+    : null;
+  const txt = g.resultText || '';
+  const outcome = resolveOutcome(g);
+
+  if (/stalemate/i.test(txt)) return 'stalemate';
+  if (/insufficient/i.test(txt)) return 'insufficient material';
+  if (/repetition/i.test(txt)) return 'repetition';
+  if (/50-move|fifty/i.test(txt)) return 'fifty-move rule';
+  if (/draw/i.test(txt)) return 'draw';
+  if (/resign/i.test(txt)) return moveCount ? `resigned on ${moveCount}` : 'resignation';
+  if (/checkmate|mate/i.test(txt)){
+    if (outcome === 'win') return moveCount ? `mate in ${moveCount}` : 'checkmate';
+    if (outcome === 'loss') return moveCount ? `mated on ${moveCount}` : 'checkmated';
+    return 'checkmate';
+  }
+  return moveCount ? `${moveCount} moves` : '';
+}
+
+const ROW_RESULT_WORD = { win:'Won', loss:'Lost', draw:'Drew', unknown:'Played' };
+
+/* Accuracy colour bands match the review's own severity language. */
+function rowAccuracyHtml(g){
+  if (typeof g.accuracy !== 'number') return '<span class="m-review">Review</span>';
+  const a = g.accuracy;
+  const band = a >= 80 ? 'good' : a >= 65 ? 'mid' : 'poor';
+  return `<span class="m-acc ${band}">${a.toFixed(0)}%</span>`;
+}
+
+function rowTimeShort(ts){
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/* The mobile-only half of a row. Spans only — it lives inside the
+   existing <button>, and a button may not contain another button. */
+function mobileRowHtml(g){
+  const outcome = resolveOutcome(g);
+  const disc = g.playerColor === 'w' ? 'w' : 'b';
+  const opp = g.botElo === 9999 ? 'Stockfish' : String(g.botElo);
+  const style = g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : '';
+  const short = rowResultShort(g);
+  return `<span class="m-row">
+      <span class="m-top">
+        <span class="m-time">${rowTimeShort(g.date)}</span>
+        <span class="m-opp"><span class="m-disc ${disc}"></span>${escapeHtml(opp)}${style}</span>
+      </span>
+      <span class="m-bot">
+        <span class="m-res">${ROW_RESULT_WORD[outcome]}</span>
+        ${short ? `<span class="m-how">${escapeHtml(short)}</span>` : ''}
+        ${rowAccuracyHtml(g)}
+      </span>
+    </span>`;
+}
+
+/* Day headers with that day's record. Hidden on desktop. */
+function dayKey(ts){
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+}
+function dayLabel(ts){
+  const d = new Date(ts), now = new Date();
+  const same = (a, b) => dayKey(a) === dayKey(b);
+  if (same(d, now)) return 'TODAY';
+  const y = new Date(now.getTime() - 86400000);
+  if (same(d, y)) return 'YESTERDAY';
+  return d.toLocaleDateString([], { weekday:'long', month:'short', day:'numeric' }).toUpperCase();
+}
+function dayRecordHtml(games){
+  const tally = { win:0, loss:0, draw:0 };
+  games.forEach(g => { const o = resolveOutcome(g); if (tally[o] !== undefined) tally[o]++; });
+  const parts = [];
+  if (tally.win) parts.push(tally.win + 'W');
+  if (tally.loss) parts.push(tally.loss + 'L');
+  if (tally.draw) parts.push(tally.draw + 'D');
+  return parts.join(' · ');
+}
+
+/* ---------- swipe to delete (mobile only) ---------- */
+
+const SWIPE_WIDTH = 104;
+let openSwipeEl = null;
+
+function closeOpenSwipe(){
+  if (openSwipeEl){
+    openSwipeEl.style.transform = '';
+    openSwipeEl.classList.remove('swiped');
+    openSwipeEl = null;
+  }
+}
+
+function attachSwipe(item, onDelete){
+  const track = item.querySelector('.acc-swipe-track');
+  const action = item.querySelector('.swipe-del');
+  if (!track || !action) return;
+
+  let startX = 0, startY = 0, dx = 0, dragging = false, decided = false;
+
+  track.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    if (openSwipeEl && openSwipeEl !== track) closeOpenSwipe();
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    dx = 0; dragging = true; decided = false;
+    track.style.transition = 'none';
+  }, { passive: true });
+
+  track.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const mx = e.touches[0].clientX - startX;
+    const my = e.touches[0].clientY - startY;
+    /* Decide once whether this gesture is a horizontal swipe or a vertical
+       scroll. Without this the list fights the swipe on every drag. */
+    if (!decided){
+      if (Math.abs(my) > Math.abs(mx)){ dragging = false; track.style.transition = ''; return; }
+      if (Math.abs(mx) < 8) return;
+      decided = true;
+    }
+    const base = openSwipeEl === track ? -SWIPE_WIDTH : 0;
+    dx = Math.max(-SWIPE_WIDTH, Math.min(0, base + mx));
+    track.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+
+  track.addEventListener('touchend', () => {
+    if (!dragging) return;
+    dragging = false;
+    track.style.transition = '';
+    if (dx < -SWIPE_WIDTH / 2){
+      track.style.transform = `translateX(${-SWIPE_WIDTH}px)`;
+      track.classList.add('swiped');
+      openSwipeEl = track;
+    } else {
+      track.style.transform = '';
+      track.classList.remove('swiped');
+      if (openSwipeEl === track) openSwipeEl = null;
+    }
+  });
+
+  action.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeOpenSwipe();
+    onDelete();
+  });
+}
+
+/* ---------- undo ---------- */
+
+/* The game record is removed straight away so "deleted" means deleted, but
+   a copy is held in memory so Undo can put it back. Puzzles are untouched
+   by a swipe delete, matching the desktop default. */
+let lastDeleted = null;
+
+function showUndoBar(container, rec, onRestore){
+  const existing = document.getElementById('undoBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'undoBar';
+  bar.className = 'undo-bar';
+  bar.innerHTML = `<span>Game deleted.</span>
+    <button type="button" class="undo-btn">Undo</button>`;
+  container.insertBefore(bar, container.firstChild);
+
+  const timer = setTimeout(() => { bar.remove(); lastDeleted = null; }, 8000);
+
+  bar.querySelector('.undo-btn').addEventListener('click', async () => {
+    clearTimeout(timer);
+    bar.remove();
+    try{
+      await store.set('games:' + rec.id, JSON.stringify(rec));
+      lastDeleted = null;
+      onRestore();
+    } catch(e){
+      console.error('undo failed', e);
+      bar.remove();
+    }
+  });
+}
+
 async function renderAnalysisView(expandId){
   const view = document.getElementById('analysisContent');
   const games = await loadAllGames();
@@ -4174,36 +4464,76 @@ async function renderAnalysisView(expandId){
     return;
   }
 
-  view.innerHTML = games.map(g => `
-    <div class="acc-item" id="acc-${g.id}" data-id="${g.id}">
-      <div class="acc-head-row">
-      <button class="acc-head">
-        <span>
-          <span class="acc-when">${new Date(g.date).toLocaleString()}</span>
-          ${outcomeBadge(g)}
-          <span class="acc-vs">vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}${g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : ''}</span>
-        </span>
-        <span class="acc-right">
-          <span class="acc-res">${escapeHtml(g.resultText)}</span>
-          <span class="chev">▶</span>
-        </span>
-      </button>
-      <button class="acc-del" title="Delete this game" aria-label="Delete this game">🗑</button>
+  /* Group by day so each row only needs a time. The headers are hidden
+     above the mobile breakpoint, leaving the desktop list as it was. */
+  const groups = [];
+  games.forEach(g => {
+    const k = dayKey(g.date);
+    const last = groups[groups.length - 1];
+    if (last && last.key === k) last.games.push(g);
+    else groups.push({ key: k, games: [g] });
+  });
+
+  view.innerHTML = groups.map(grp => `
+    <div class="day-head">
+      <span class="day-label">${escapeHtml(dayLabel(grp.games[0].date))}</span>
+      <span class="day-record">${escapeHtml(dayRecordHtml(grp.games))}</span>
+    </div>` + grp.games.map(g => `
+    <div class="acc-item outcome-${resolveOutcome(g)}" id="acc-${g.id}" data-id="${g.id}">
+      <div class="acc-swipe">
+        <div class="acc-swipe-action">
+          <button type="button" class="swipe-del" aria-label="Delete this game">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+            <span>Delete</span>
+          </button>
+        </div>
+        <div class="acc-swipe-track">
+          <div class="acc-head-row">
+          <button class="acc-head">
+            <span class="acc-desktop-only">
+              <span class="acc-when">${new Date(g.date).toLocaleString()}</span>
+              ${outcomeBadge(g)}
+              <span class="acc-vs">vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}${g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : ''}</span>
+            </span>
+            ${mobileRowHtml(g)}
+            <span class="acc-right acc-desktop-only">
+              <span class="acc-res">${escapeHtml(g.resultText)}</span>
+              <span class="chev">▶</span>
+            </span>
+          </button>
+          <button class="acc-del" title="Delete this game" aria-label="Delete this game">🗑</button>
+          </div>
+        </div>
       </div>
       <div class="acc-body" id="accbody-${g.id}"></div>
-    </div>`).join('');
+    </div>`).join('')).join('');
 
   view.querySelectorAll('.acc-item').forEach(item => {
     const id = item.dataset.id;
+    const refreshAfterDelete = () => {
+      renderAnalysisView();
+      const hist = document.getElementById('historyContent');
+      if (hist && hist.innerHTML.trim()) renderHistoryView();
+    };
+
+    // Desktop: the visible button and its confirm panel, unchanged.
     item.querySelector('.acc-del').addEventListener('click', (e) => {
       e.stopPropagation();
-      confirmDeleteGame(item, games.find(g => g.id === id), () => {
-        renderAnalysisView();
-        const hist = document.getElementById('historyContent');
-        if (hist && hist.innerHTML.trim()) renderHistoryView();
-      });
+      confirmDeleteGame(item, games.find(g => g.id === id), refreshAfterDelete);
     });
-    item.querySelector('.acc-head').addEventListener('click', () => {
+
+    // Mobile: swipe reveals Delete, and an Undo bar replaces the confirm.
+    attachSwipe(item, async () => {
+      const rec = games.find(g => g.id === id);
+      if (!rec) return;
+      lastDeleted = rec;
+      const res = await deleteGameRecord(id, { alsoPuzzles: false });
+      if (!res.ok) return;
+      refreshAfterDelete();
+      showUndoBar(view, rec, refreshAfterDelete);
+    });
+    item.querySelector('.acc-head').addEventListener('click', (e) => {
+      if (openSwipeEl){ closeOpenSwipe(); return; }   // first tap just closes
       const isOpen = item.classList.contains('open');
       view.querySelectorAll('.acc-item').forEach(i => i.classList.remove('open'));
       if (!isOpen){
@@ -6982,6 +7312,52 @@ async function runSelfTests(){
       if (before === null) localStorage.removeItem('cfg:recentObs');
       else localStorage.setItem('cfg:recentObs', before);
     }
+  });
+
+  check('stylesheet braces are balanced', () => {
+    /* An extra closing brace silently ends a media query early, so the rules
+       after it apply at every width. That had happened to the handbook nav. */
+    const sheet = Array.from(document.querySelectorAll('style'))
+      .map(s => s.textContent).join('\n');
+    let depth = 0, wentNegative = -1;
+    const lines = sheet.split('\n');
+    for (let i = 0; i < lines.length; i++){
+      for (const ch of lines[i]){
+        if (ch === '{') depth++;
+        else if (ch === '}') depth--;
+      }
+      if (depth < 0 && wentNegative === -1) wentNegative = i + 1;
+    }
+    if (wentNegative !== -1) return 'unmatched } at stylesheet line ' + wentNegative;
+    return depth === 0 ? true : 'unclosed rule, depth ' + depth;
+  });
+
+  check('result text compresses without inventing a move count', () => {
+    const cases = [
+      [{ resultText:'Checkmate — White wins.', playerColor:'w', pgn:'1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7#' }, /^mate in 4$/],
+      [{ resultText:'Checkmate — Black wins.', playerColor:'w', pgn:'1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7#' }, /^mated on 4$/],
+      [{ resultText:'Draw by stalemate.', playerColor:'w', pgn:'1. e4' }, /^stalemate$/],
+      [{ resultText:'White resigns.', playerColor:'w', pgn:'1. e4 e5' }, /^resigned on 1$/],
+      [{ resultText:'Checkmate — White wins.', playerColor:'w' }, /^checkmate$/]
+    ];
+    const bad = cases
+      .map(([g, re]) => [g.resultText, rowResultShort(g), re])
+      .filter(([, got, re]) => !re.test(got))
+      .map(([txt, got]) => txt + ' -> ' + got);
+    return bad.length === 0 ? true : bad.join('; ');
+  });
+
+  check('day labels name today and yesterday', () => {
+    const now = Date.now();
+    if (dayLabel(now) !== 'TODAY') return 'today: ' + dayLabel(now);
+    if (dayLabel(now - 86400000) !== 'YESTERDAY') return 'yesterday: ' + dayLabel(now - 86400000);
+    if (dayKey(now) === dayKey(now - 86400000)) return 'two days share a key';
+    const rec = dayRecordHtml([
+      { resultText:'Checkmate — White wins.', playerColor:'w' },
+      { resultText:'Checkmate — Black wins.', playerColor:'w' },
+      { resultText:'Draw by stalemate.', playerColor:'w' }
+    ]);
+    return /1W · 1L · 1D/.test(rec) ? true : 'record: ' + rec;
   });
 
   check('no two top-level functions share a name', () => {
