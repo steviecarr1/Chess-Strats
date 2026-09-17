@@ -3669,8 +3669,11 @@ function uciLineToSan(fen, uciMoves, maxPlies = 6){
   return out;
 }
 
-/* Format a SAN run as "12. Nf3 Bxe5 13. Qd2", numbering from the real move number. */
-function formatLine(fen, sans){
+/* Format a SAN run as "12. Nf3 Bxe5 13. Qd2", numbering from the real move
+   number and handling a black-to-move start.
+   NOTE: deliberately NOT called formatLine — the handbook already defines a
+   one-argument formatLine(sans), and the later declaration silently wins. */
+function formatSanLine(fen, sans){
   if (!sans.length) return '';
   const parts = fen.split(' ');
   let num = parseInt(parts[5], 10) || 1;
@@ -3737,8 +3740,8 @@ function squaresAttackedFrom(chessObj, sq){
 function swingPhrase(cpLost){
   const p = Math.abs(cpLost) / 100;
   if (p >= 5) return 'a decisive amount';
-  if (p >= 2.5) return `about ${p.toFixed(1)} pawns`;
-  if (p >= 0.8) return `about ${p.toFixed(1)} of a pawn`;
+  if (p >= 1) return `about ${p.toFixed(1)} pawns`;
+  if (p >= 0.5) return 'about half a pawn';
   return 'a small but real edge';
 }
 
@@ -3801,7 +3804,7 @@ function buildPuzzleExplanation({ p, bestMv, bestAction, bestCp, bestLine, bestL
   if (bestLine.length){
     // bestLine starts AFTER the best move, so number the whole sequence from
     // the original position with the best move at its head.
-    const full = formatLine(p.fen, [bestMv.san, ...bestLine]);
+    const full = formatSanLine(p.fen, [bestMv.san, ...bestLine]);
     html.push(`<div class="px-line"><span class="px-label">The engine expects</span> ${escapeHtml(full)}</div>`);
   }
 
@@ -3819,7 +3822,7 @@ function buildPuzzleExplanation({ p, bestMv, bestAction, bestCp, bestLine, bestL
       const reply = userPart.refutation[0];
       bits.push(`lets your opponent answer <strong>${escapeHtml(reply)}</strong>`);
       if (userPart.refutation.length > 1){
-        bits.push(`(${escapeHtml(formatLine(userPart.refutationFen, userPart.refutation))})`);
+        bits.push(`(${escapeHtml(formatSanLine(userPart.refutationFen, userPart.refutation))})`);
       }
     } else {
       bits.push('gives up ground here');
@@ -3835,9 +3838,13 @@ function buildPuzzleExplanation({ p, bestMv, bestAction, bestCp, bestLine, bestL
         ? 'The engine\'s move forces mate. Yours doesn\'t.'
         : 'Your move walks into a forced mate.'}</div>`);
     } else if (diff > 30){
+      // Derive the gap from the rounded figures actually displayed, or the
+      // three numbers on screen won't add up.
+      const shownBest = Math.round(bestCp / 10) * 10;
+      const shownUser = Math.round(userPart.cp / 10) * 10;
       html.push(`<div class="px-cost"><span class="px-label">The difference</span> ` +
-        `${escapeHtml(swingPhrase(diff))} — ${fmtEvalFor(bestCp, moverIsWhite)} after ${escapeHtml(bestMv.san)}, ` +
-        `${fmtEvalFor(userPart.cp, moverIsWhite)} after ${escapeHtml(userPart.mv.san)}.</div>`);
+        `${escapeHtml(swingPhrase(shownBest - shownUser))} — ${fmtEvalFor(shownBest, moverIsWhite)} after ${escapeHtml(bestMv.san)}, ` +
+        `${fmtEvalFor(shownUser, moverIsWhite)} after ${escapeHtml(userPart.mv.san)}.</div>`);
     } else {
       html.push(`<div class="px-cost">Honestly, your move is close. The engine prefers ` +
         `${escapeHtml(bestMv.san)} by only ${escapeHtml(swingPhrase(diff))}, so this one is a fine choice in a real game.</div>`);
@@ -6231,12 +6238,27 @@ async function runSelfTests(){
     return svgLineChart([]).includes('chart-empty') ? true : 'did not degrade';
   });
 
+  check('no two top-level functions share a name', () => {
+    // A duplicate declaration silently overwrites the earlier one, which is
+    // how the puzzle explanation ended up numbering a FEN character by
+    // character. Two sessions edit this file, so check it every load.
+    const src = document.documentElement.innerHTML;
+    const seen = {}, dupes = [];
+    const re = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g;
+    let m;
+    while ((m = re.exec(src)) !== null){
+      if (seen[m[1]]) { if (dupes.indexOf(m[1]) === -1) dupes.push(m[1]); }
+      seen[m[1]] = true;
+    }
+    return dupes.length === 0 ? true : 'duplicated: ' + dupes.join(', ');
+  });
+
   check('SAN line formatting numbers from the real move number', () => {
     const fen = 'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 6 5';
-    const white = formatLine(fen, ['d3','O-O','Nc3']);
+    const white = formatSanLine(fen, ['d3','O-O','Nc3']);
     if (!/^5\. d3 O-O 6\. Nc3$/.test(white)) return 'white-to-move: ' + white;
     const bfen = fen.replace(' w ', ' b ');
-    const black = formatLine(bfen, ['O-O','d3']);
+    const black = formatSanLine(bfen, ['O-O','d3']);
     if (!/^5\.\.\.O-O 6\. d3$/.test(black)) return 'black-to-move: ' + black;
     return true;
   });
