@@ -503,6 +503,13 @@
     letter-spacing:.06em;margin-right:6px;
   }
   .puzzle-explain .px-why{color:var(--ivory);}
+  .puzzle-explain .px-legend{
+    font-size:.78rem;color:var(--ivory-dim);
+    padding-bottom:7px;border-bottom:1px solid var(--felt-700);
+  }
+  .puzzle-explain .lg-from{color:var(--emerald-bright);font-weight:600;}
+  .puzzle-explain .lg-to{color:var(--emerald);font-weight:600;}
+  .puzzle-explain .lg-bad{color:var(--ember);font-weight:600;}
   .puzzle-explain .px-your{color:var(--ivory-dim);}
   .puzzle-explain .px-line{
     color:var(--ivory-dim);font-family:'Georgia',serif;font-size:.9rem;
@@ -3605,6 +3612,8 @@ function renderPuzzleBoard(){
   if (puzzleLastMove){
     if (puzzleLastMove.correctSq) marks['puzzle-correct'] = puzzleLastMove.correctSq;
     if (puzzleLastMove.wrongSq) marks['puzzle-wrong'] = puzzleLastMove.wrongSq;
+    // Show WHICH piece was meant to move, not just where it was going.
+    if (puzzleLastMove.correctFromSq) marks['guide-from'] = puzzleLastMove.correctFromSq;
   }
   renderChessBoard(document.getElementById('puzzleBoard'), puzzleGame, {
     flipped: p.sideToMove === 'b',
@@ -3790,47 +3799,67 @@ async function explainPuzzle(p, userUci){
 function buildPuzzleExplanation({ p, bestMv, bestAction, bestCp, bestLine, bestLineFen, userPart }){
   const html = [];
   const moverIsWhite = bestMv.color === 'w';
+  const pieceName = PIECE_WORD[bestMv.piece];
 
-  // --- why the best move is good ---
-  const facts = bestAction ? bestAction.facts : [];
-  let why;
-  if (facts.length){
-    why = `<strong>${escapeHtml(bestMv.san)}</strong> ${facts.join(', and ')}.`;
-  } else {
-    why = `<strong>${escapeHtml(bestMv.san)}</strong> doesn't win anything immediately — it's a positional improvement rather than a tactic.`;
+  /* ---- 1. What the recommended move is, in words ---- */
+  const facts = bestAction ? bestAction.facts.slice() : [];
+  const sentences = [];
+
+  let opener = `By playing <strong>${escapeHtml(bestMv.san)}</strong> — the ` +
+    `${pieceName} from ${bestMv.from} to ${bestMv.to}`;
+  opener += facts.length
+    ? ` — you ${facts.join(', and you ')}.`
+    : ` — you improve the position without winning material straight away.`;
+  sentences.push(opener);
+
+  /* ---- 2. What it sets up, read off the engine's own line ---- */
+  if (bestLine.length >= 2){
+    // bestLine[0] is the opponent's reply; bestLine[1] is your follow-up.
+    const reply = bestLine[0];
+    const followUp = bestLine[1];
+    const followFacts = followUpFacts(p.fen, bestMv, bestLine);
+    let s = `If they answer <strong>${escapeHtml(reply)}</strong>, you follow with ` +
+      `<strong>${escapeHtml(followUp)}</strong>`;
+    s += followFacts.length ? `, which ${followFacts.join(' and ')}.` : `, keeping the initiative.`;
+    sentences.push(s);
+  } else if (bestLine.length === 1){
+    sentences.push(`Their best answer is <strong>${escapeHtml(bestLine[0])}</strong>.`);
   }
-  html.push(`<div class="px-why">${why}</div>`);
+
+  html.push(`<div class="px-legend">On the board: the <span class="lg-from">green outline</span> is the ` +
+    `piece to move, the <span class="lg-to">green square</span> is where it goes` +
+    (userPart ? `, and the <span class="lg-bad">red square</span> is where you played.` : `.`) + `</div>`);
+  html.push(`<div class="px-why">${sentences.join(' ')}</div>`);
 
   if (bestLine.length){
-    // bestLine starts AFTER the best move, so number the whole sequence from
-    // the original position with the best move at its head.
     const full = formatSanLine(p.fen, [bestMv.san, ...bestLine]);
     html.push(`<div class="px-line"><span class="px-label">The engine expects</span> ${escapeHtml(full)}</div>`);
   }
 
-  // --- what your move allowed ---
+  /* ---- 3. What your move did instead, and what it cost ---- */
   if (userPart){
+    const um = userPart.mv;
+    const uName = PIECE_WORD[um.piece];
     const bits = [];
-    const yourFacts = describeMoveAction(p.fen, userPart.mv.from + userPart.mv.to + (userPart.mv.promotion || ''));
-    if (userPart.mv.captured){
-      bits.push(`<strong>${escapeHtml(userPart.mv.san)}</strong> wins the ${PIECE_WORD[userPart.mv.captured]}, but`);
-    } else {
-      bits.push(`<strong>${escapeHtml(userPart.mv.san)}</strong>`);
-    }
+    let lead = `Instead, <strong>${escapeHtml(um.san)}</strong> moved your ${uName} ` +
+      `from ${um.from} to ${um.to}`;
+    if (um.captured) lead += `, winning the ${PIECE_WORD[um.captured]}`;
+    bits.push(lead + '.');
 
     if (userPart.refutation.length){
       const reply = userPart.refutation[0];
-      bits.push(`lets your opponent answer <strong>${escapeHtml(reply)}</strong>`);
+      const cost = refutationCost(userPart.refutationFen, userPart.refutation, um);
+      let s = `The trouble is <strong>${escapeHtml(reply)}</strong>`;
+      s += cost ? `, which ${cost}.` : `, and your opponent is better after it.`;
+      bits.push(s);
       if (userPart.refutation.length > 1){
-        bits.push(`(${escapeHtml(formatSanLine(userPart.refutationFen, userPart.refutation))})`);
+        bits.push(`The line runs ${escapeHtml(formatSanLine(userPart.refutationFen, userPart.refutation))}.`);
       }
-    } else {
-      bits.push('gives up ground here');
     }
-    html.push(`<div class="px-your">${bits.join(' ')}.</div>`);
+    html.push(`<div class="px-your">${bits.join(' ')}</div>`);
   }
 
-  // --- the cost, in engine terms ---
+  /* ---- 4. The cost in engine terms ---- */
   if (bestCp !== null && userPart && userPart.cp !== null){
     const diff = bestCp - userPart.cp;
     if (Math.abs(bestCp) >= 100000 || Math.abs(userPart.cp) >= 100000){
@@ -3838,20 +3867,60 @@ function buildPuzzleExplanation({ p, bestMv, bestAction, bestCp, bestLine, bestL
         ? 'The engine\'s move forces mate. Yours doesn\'t.'
         : 'Your move walks into a forced mate.'}</div>`);
     } else if (diff > 30){
-      // Derive the gap from the rounded figures actually displayed, or the
-      // three numbers on screen won't add up.
       const shownBest = Math.round(bestCp / 10) * 10;
       const shownUser = Math.round(userPart.cp / 10) * 10;
       html.push(`<div class="px-cost"><span class="px-label">The difference</span> ` +
-        `${escapeHtml(swingPhrase(shownBest - shownUser))} — ${fmtEvalFor(shownBest, moverIsWhite)} after ${escapeHtml(bestMv.san)}, ` +
-        `${fmtEvalFor(shownUser, moverIsWhite)} after ${escapeHtml(userPart.mv.san)}.</div>`);
+        `${escapeHtml(swingPhrase(shownBest - shownUser))} — ${fmtEvalFor(shownBest, moverIsWhite)} after ` +
+        `${escapeHtml(bestMv.san)}, ${fmtEvalFor(shownUser, moverIsWhite)} after ${escapeHtml(userPart.mv.san)}.</div>`);
     } else {
-      html.push(`<div class="px-cost">Honestly, your move is close. The engine prefers ` +
-        `${escapeHtml(bestMv.san)} by only ${escapeHtml(swingPhrase(diff))}, so this one is a fine choice in a real game.</div>`);
+      html.push(`<div class="px-cost">Your move is close. The engine prefers ` +
+        `${escapeHtml(bestMv.san)} by only ${escapeHtml(swingPhrase(diff))}, so yours is a fine practical choice.</div>`);
     }
   }
 
   return html.join('');
+}
+
+/* What your follow-up move in the engine's line actually achieves.
+   Derived by replaying the line, never asserted from pattern-matching. */
+function followUpFacts(fen, bestMv, bestLine){
+  try{
+    const g = new Chess(fen);
+    g.move(bestMv.san);
+    g.move(bestLine[0]);
+    const before = g.fen();
+    const action = describeMoveActionSan(before, bestLine[1]);
+    return action ? action.facts : [];
+  } catch(e){ return []; }
+}
+
+/* What the opponent's refutation wins. */
+function refutationCost(fenAfterYourMove, refutation, yourMove){
+  try{
+    const g = new Chess(fenAfterYourMove);
+    const mv = g.move(refutation[0]);
+    if (!mv) return null;
+    const parts = [];
+    if (mv.captured){
+      const sameSquare = mv.to === yourMove.to;
+      parts.push(sameSquare
+        ? `takes the ${PIECE_WORD[mv.captured]} you just moved there`
+        : `takes your ${PIECE_WORD[mv.captured]} on ${mv.to}`);
+    }
+    if (g.in_checkmate()) parts.push('is checkmate');
+    else if (g.in_check()) parts.push('comes with check');
+    return parts.length ? parts.join(' and ') : null;
+  } catch(e){ return null; }
+}
+
+/* describeMoveAction, but taking SAN instead of UCI. */
+function describeMoveActionSan(fen, san){
+  try{
+    const probe = new Chess(fen);
+    const mv = probe.move(san);
+    if (!mv) return null;
+    return describeMoveAction(fen, mv.from + mv.to + (mv.promotion || ''));
+  } catch(e){ return null; }
 }
 
 /* Evaluation as a signed number from the mover's point of view. */
@@ -3914,14 +3983,14 @@ async function submitPuzzleAttempt(from, to){
     p.solved = true;
     const quality = practiceAttemptClean ? 5 : 3;
     gradePuzzle(p, quality);
-    puzzleLastMove = { from, to, correctSq: to };
+    puzzleLastMove = { from, to, correctSq: to, correctFromSq: from };
     document.getElementById('puzzleStatus').textContent =
       `Correct — ${p.bestMove.san} was the move. ${dueLabel(p)}.`;
   } else {
     sound.wrong();
     practiceAttemptClean = false;
     gradePuzzle(p, 1);
-    puzzleLastMove = { from, to, wrongSq: to, correctSq: p.bestMove.from === from ? null : p.bestMove.to };
+    puzzleLastMove = { from, to, wrongSq: to, correctSq: p.bestMove.to, correctFromSq: p.bestMove.from };
     document.getElementById('puzzleStatus').textContent =
       `Not quite. The better move was ${p.bestMove.san}. You'll see this one again.`;
   }
@@ -3943,7 +4012,7 @@ document.getElementById('puzzleRevealBtn').addEventListener('click', () => {
   practiceAttemptClean = false;
   gradePuzzle(p, 1);
   store.set('puzzles:' + p.id, JSON.stringify(p)).catch(() => {});
-  puzzleLastMove = { from: p.bestMove.from, to: p.bestMove.to, correctSq: p.bestMove.to };
+  puzzleLastMove = { from: p.bestMove.from, to: p.bestMove.to, correctSq: p.bestMove.to, correctFromSq: p.bestMove.from };
   document.getElementById('puzzleStatus').textContent =
     `Best move: ${p.bestMove.san} (${p.bestMove.from} → ${p.bestMove.to}). This one will come back.`;
   renderPuzzleMeta(p);
@@ -6236,6 +6305,32 @@ async function runSelfTests(){
 
   check('charts handle an empty series', () => {
     return svgLineChart([]).includes('chart-empty') ? true : 'did not degrade';
+  });
+
+  check('refutation cost reports what the reply actually wins', () => {
+    // Black has just played Nc6-b4?? and White wins the knight with a2-a3.
+    // Build it directly: knight on b4, white pawn a2, white to move.
+    const fen = '4k3/8/8/8/1n6/8/P7/4K3 w - - 0 1';
+    const g = new Chess(fen);
+    const cost = refutationCost(fen, ['a3'], { to:'b4', piece:'n' });
+    if (!cost || !/takes the knight/.test(cost)) return 'got: ' + cost;
+
+    // A quiet reply should report no material cost rather than invent one.
+    const quiet = refutationCost('4k3/8/8/8/8/8/P7/4K3 w - - 0 1', ['a3'], { to:'b4', piece:'n' });
+    if (quiet !== null) return 'invented a cost: ' + quiet;
+    return true;
+  });
+
+  check('follow-up facts come from replaying the real line', () => {
+    // 1. e4 e5 2. Nf3 — the follow-up Nf3 attacks the e5 pawn.
+    const facts = followUpFacts('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      { san:'e4' }, ['e5', 'Nf3']);
+    if (!Array.isArray(facts)) return 'did not return a list';
+    // An illegal or broken line must degrade to empty, not throw.
+    const broken = followUpFacts('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      { san:'e4' }, ['Qh8', 'Zz9']);
+    if (!Array.isArray(broken) || broken.length !== 0) return 'broken line not handled';
+    return true;
   });
 
   check('no two top-level functions share a name', () => {
