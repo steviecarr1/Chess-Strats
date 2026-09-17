@@ -474,6 +474,43 @@
   .sq.puzzle-correct{background-image:linear-gradient(rgba(92,150,120,.55),rgba(92,150,120,.55));}
   .sq.puzzle-wrong{background-image:linear-gradient(rgba(177,84,58,.55),rgba(177,84,58,.55));}
 
+  .acc-head-row{display:flex;align-items:stretch;}
+  .acc-head-row .acc-head{flex:1;min-width:0;}
+  .acc-del, .hr-del{
+    background:none;border:none;cursor:pointer;
+    color:var(--ivory-dim);font-size:1rem;
+    padding:0 16px;flex-shrink:0;
+    border-left:1px solid var(--felt-700);
+    transition:color .15s, background .15s;
+  }
+  .hr-del{border-left:none;padding:4px 10px;border-radius:5px;}
+  .acc-del:hover, .hr-del:hover{color:var(--ember);background:var(--felt-800);}
+  .hr-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+
+  .del-confirm{
+    background:var(--felt-800);
+    border-top:1px solid var(--felt-700);
+    padding:14px 16px;
+    display:flex;flex-direction:column;gap:10px;
+    font-size:.88rem;cursor:default;
+  }
+  .del-confirm .dc-text{color:var(--ivory);}
+  .del-confirm .dc-opt{
+    display:flex;align-items:center;gap:8px;
+    color:var(--ivory-dim);font-size:.84rem;cursor:pointer;
+  }
+  .del-confirm .dc-actions{display:flex;gap:8px;}
+  /* history-row is a wrapping flex row, so the panel needs its own line */
+  .history-row .del-confirm{
+    flex-basis:100%;
+    margin:4px -16px -14px;
+    border-radius:0 0 5px 5px;
+  }
+  .del-confirm .btn{padding:7px 16px;font-size:.85rem;}
+  .btn.danger{background:var(--ember);color:#fdeee9;border-color:var(--ember);}
+  .btn.danger:hover{filter:brightness(1.1);}
+  .btn.danger:disabled{opacity:.6;cursor:default;}
+
   .acc-item{
     background:var(--felt-900);
     border:1px solid var(--felt-700);
@@ -3294,6 +3331,87 @@ async function savePuzzlesFromMoments(gameId, moments){
   }
 }
 
+/* Delete a saved game. Puzzles are kept by default: they stand alone
+   (position + your move + the better move) and carry their own spaced
+   repetition schedule, which is worth more than the game they came from. */
+/* Two-step inline confirm. A browser confirm() dialog is easy to dismiss by
+   accident on mobile and can't explain what happens to the puzzles. */
+function confirmDeleteGame(anchorEl, rec, onDone){
+  const existing = document.querySelector('.del-confirm');
+  if (existing) existing.remove();
+
+  const box = document.createElement('div');
+  box.className = 'del-confirm';
+  box.innerHTML = `
+    <div class="dc-text">Delete this game? This can't be undone.</div>
+    <label class="dc-opt"><input type="checkbox" class="dc-puz"> Also delete puzzles made from it</label>
+    <div class="dc-actions">
+      <button class="btn danger dc-yes">Delete</button>
+      <button class="btn secondary dc-no">Cancel</button>
+    </div>`;
+  anchorEl.appendChild(box);
+
+  countPuzzlesForGame(rec.id).then(n => {
+    const opt = box.querySelector('.dc-opt');
+    if (!opt) return;
+    if (n === 0){ opt.style.display = 'none'; return; }
+    opt.lastChild.textContent = ` Also delete the ${n} puzzle${n === 1 ? '' : 's'} made from it`;
+  });
+
+  box.querySelector('.dc-no').addEventListener('click', (e) => {
+    e.stopPropagation();
+    box.remove();
+  });
+  box.querySelector('.dc-yes').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const alsoPuzzles = box.querySelector('.dc-puz').checked;
+    box.querySelector('.dc-yes').disabled = true;
+    box.querySelector('.dc-yes').textContent = 'Deleting…';
+    const res = await deleteGameRecord(rec.id, { alsoPuzzles });
+    box.remove();
+    if (res.ok) onDone(res);
+  });
+  box.addEventListener('click', (e) => e.stopPropagation());
+}
+
+async function deleteGameRecord(id, { alsoPuzzles = false } = {}){
+  let removedPuzzles = 0;
+  try{
+    await store.remove('games:' + id);
+  } catch(e){ console.error('delete game failed', e); return { ok:false, removedPuzzles }; }
+
+  if (alsoPuzzles){
+    try{
+      const listing = await store.list('puzzles:');
+      for (const key of (listing ? listing.keys : [])){
+        try{
+          const item = await store.get(key);
+          if (!item) continue;
+          if (JSON.parse(item.value).sourceGameId === id){
+            await store.remove(key);
+            removedPuzzles++;
+          }
+        } catch(e){}
+      }
+    } catch(e){ console.error('delete puzzles failed', e); }
+  }
+  return { ok:true, removedPuzzles };
+}
+
+async function countPuzzlesForGame(id){
+  let n = 0;
+  try{
+    const listing = await store.list('puzzles:');
+    for (const key of (listing ? listing.keys : [])){
+      try{
+        const item = await store.get(key);
+        if (item && JSON.parse(item.value).sourceGameId === id) n++;
+      } catch(e){}
+    }
+  } catch(e){}
+  return n;
+}
+
 async function loadAllGames(){
   const games = [];
   try{
@@ -3340,11 +3458,22 @@ async function renderHistoryView(){
         <span class="date">${new Date(g.date).toLocaleString()}</span>
         Played ${g.playerColor === 'w' ? 'White' : 'Black'} vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}
       </div>
-      <div class="hr-tag">${g.resultText}</div>
+      <div class="hr-right">
+        <span class="hr-tag">${g.resultText}</span>
+        <button class="hr-del" title="Delete this game" aria-label="Delete this game">🗑</button>
+      </div>
     </div>`).join('');
   container.innerHTML = `<div class="history-list">${rows}</div><div class="history-detail" id="historyDetail"></div>`;
 
   container.querySelectorAll('.history-row').forEach(row => {
+    row.querySelector('.hr-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      confirmDeleteGame(row, games.find(g => g.id === row.dataset.id), () => {
+        const detail = document.getElementById('historyDetail');
+        if (detail) detail.innerHTML = '';
+        renderHistoryView();
+      });
+    });
     row.addEventListener('click', () => {
       const rec = games.find(g => g.id === row.dataset.id);
       renderHistoryDetail(rec);
@@ -3585,6 +3714,7 @@ async function renderAnalysisView(expandId){
 
   view.innerHTML = games.map(g => `
     <div class="acc-item" id="acc-${g.id}" data-id="${g.id}">
+      <div class="acc-head-row">
       <button class="acc-head">
         <span>
           <span class="acc-when">${new Date(g.date).toLocaleString()}</span>
@@ -3596,11 +3726,21 @@ async function renderAnalysisView(expandId){
           <span class="chev">▶</span>
         </span>
       </button>
+      <button class="acc-del" title="Delete this game" aria-label="Delete this game">🗑</button>
+      </div>
       <div class="acc-body" id="accbody-${g.id}"></div>
     </div>`).join('');
 
   view.querySelectorAll('.acc-item').forEach(item => {
     const id = item.dataset.id;
+    item.querySelector('.acc-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      confirmDeleteGame(item, games.find(g => g.id === id), () => {
+        renderAnalysisView();
+        const hist = document.getElementById('historyContent');
+        if (hist && hist.innerHTML.trim()) renderHistoryView();
+      });
+    });
     item.querySelector('.acc-head').addEventListener('click', () => {
       const isOpen = item.classList.contains('open');
       view.querySelectorAll('.acc-item').forEach(i => i.classList.remove('open'));
@@ -5668,12 +5808,22 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
    accuracy scoring.
    ============================================================ */
 
-function runSelfTests(){
+async function runSelfTests(){
   const results = [];
+  const pendingChecks = [];
   const check = (name, fn) => {
+    const record = (r) => results.push({
+      name, pass: r === true, detail: r === true ? '' : String(r)
+    });
     try{
       const r = fn();
-      results.push({ name, pass: r === true, detail: r === true ? '' : String(r) });
+      // Async checks (anything touching storage) resolve later; hold the
+      // slot so the summary isn't printed before they finish.
+      if (r && typeof r.then === 'function'){
+        pendingChecks.push(r.then(record, e => record(e.message)));
+      } else {
+        record(r);
+      }
     } catch(e){
       results.push({ name, pass: false, detail: e.message });
     }
@@ -5797,6 +5947,25 @@ function runSelfTests(){
 
   check('charts handle an empty series', () => {
     return svgLineChart([]).includes('chart-empty') ? true : 'did not degrade';
+  });
+
+  check('deleting a game removes it and honours the puzzle option', async () => {
+    const gid = 'selftest-del-' + Date.now();
+    await store.set('games:' + gid, JSON.stringify({ id:gid, date:Date.now(), playerColor:'w', botElo:800, resultText:'Test.' }));
+    await store.set('puzzles:' + gid + '-p1', JSON.stringify({ id:gid + '-p1', sourceGameId:gid }));
+
+    const n = await countPuzzlesForGame(gid);
+    if (n !== 1) return 'expected 1 linked puzzle, got ' + n;
+
+    await deleteGameRecord(gid, { alsoPuzzles: false });
+    const games = await loadAllGames();
+    if (games.some(g => g.id === gid)) return 'game survived deletion';
+    if (await countPuzzlesForGame(gid) !== 1) return 'puzzle was removed when it should have been kept';
+
+    await deleteGameRecord(gid, { alsoPuzzles: true });
+    if (await countPuzzlesForGame(gid) !== 0) return 'puzzle survived opt-in deletion';
+    try { await store.remove('puzzles:' + gid + '-p1'); } catch(e){}
+    return true;
   });
 
   check('outcome resolves against the colour you played', () => {
@@ -5992,6 +6161,8 @@ function runSelfTests(){
     if (classic.indexOf('cr-section') !== -1) return 'classic mode still typesets';
     return true;
   });
+
+  await Promise.all(pendingChecks);
 
   const passed = results.filter(r => r.pass).length;
   console.log(`%cSelf-tests: ${passed}/${results.length} passed`,
