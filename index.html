@@ -2133,7 +2133,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17d · transposition key fix';
+const BUILD = '2026-09-17e · deeper match analysis';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -4844,6 +4844,13 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
 
     annotations.push({
       estimated,
+      fen: before.fen,
+      evalBefore: before.cpWhite,
+      playedUci,
+      captured: moves[i].captured || null,
+      piece: moves[i].piece,
+      from: moves[i].from,
+      to: moves[i].to,
       ply: i + 1,
       moveNumber: Math.ceil((i + 1) / 2),
       san: moves[i].san,
@@ -4879,20 +4886,257 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
   const unscored = evals.filter(e => e.estimated).length;
   const skipped = annotations.filter(a => a.isPlayer && a.estimated).length;
 
+  const seed = revSeed(gameId || pgn || 'x');
+  const narrative = {
+    seed,
+    critical: revCriticalMoment(annotations, playerColorCode, seed),
+    arc: revGameArc(annotations, playerColorCode, seed),
+    specifics: [
+      { key:'stragglers', text: revStragglers(moves, playerColorCode) },
+      { key:'hanging',    text: revHangingDetail(annotations, seed) },
+      { key:'shuffle',    text: revPieceShuffle(moves, playerColorCode) },
+      { key:'missed',     text: revMissedMaterial(annotations, seed) }
+    ].filter(o => o.text),
+    history: await revHistoryContext(gameId, accuracy, counts)
+  };
+
   const summary = buildLocalSummary({
     resultText, botEloVal, playerColorCode, opening, accuracy, avgLoss,
     counts, annotations, totalMoves: moves.length,
     styleName: styleNameForReview, plans,
     outcomeWord: outcomeWordForReview,
-    unscored, skipped, scoredMoves: playerMoves
+    unscored, skipped, scoredMoves: playerMoves,
+    narrative
   });
 
   return { annotations, accuracy, avgLoss, counts, opening, summary, unscored, skipped };
 }
 
+/* ============================================================
+   REVIEW NARRATIVE
+   The old review drew from about four fixed sentences and reported
+   aggregates ("3 pieces on the back rank") rather than specifics, so
+   every game read the same. Everything here is either named from the
+   actual position or measured against the player's own history.
+   ============================================================ */
+
+/* Stable per-game seed: the same game always reads the same way, but two
+   games with identical statistics get different phrasing. */
+function revSeed(str){
+  let n = 0;
+  for (let i = 0; i < String(str).length; i++){
+    n = (n * 31 + String(str).charCodeAt(i)) & 0x7fffffff;
+  }
+  return n;
+}
+function revPick(arr, seed){ return arr[seed % arr.length]; }
+
+const REV_PIECE = { p:'pawn', n:'knight', b:'bishop', r:'rook', q:'queen', k:'king' };
+
+function revPawns(cp){ return (cp / 100).toFixed(1); }
+
+/* ---------- 1. The turning point ---------- */
+function revCriticalMoment(annotations, playerColorCode, seed){
+  const mine = annotations.filter(a => a.isPlayer && !a.estimated && a.loss > 80);
+  if (!mine.length) return null;
+  const worst = mine.reduce((a, b) => (b.loss > a.loss ? b : a));
+  const sign = playerColorCode === 'w' ? 1 : -1;
+  const before = worst.evalBefore * sign;
+  const after = worst.evalAfter * sign;
+
+  const bits = [];
+  const stateBefore = before > 150 ? 'you were clearly better'
+    : before > 50 ? 'you held a small edge'
+    : before > -50 ? 'the game was level'
+    : before > -150 ? 'you were slightly worse'
+    : 'you were already struggling';
+
+  bits.push(revPick([
+    `The game turned on move ${worst.moveNumber}. Going in, ${stateBefore}`,
+    `Move ${worst.moveNumber} was the moment that mattered — ${stateBefore} beforehand`,
+    `Everything hinged on move ${worst.moveNumber}, where ${stateBefore}`
+  ], seed) + ` (${before > 0 ? '+' : ''}${revPawns(before)}).`);
+
+  // What was available instead, read off the board.
+  if (worst.bestMove && worst.fen){
+    const better = describeMoveAction(worst.fen, worst.bestMove);
+    if (better){
+      const san = better.move.san;
+      bits.push(better.facts.length
+        ? `${san} was there, which ${better.facts.join(' and ')}.`
+        : `${san} would have kept things together.`);
+    }
+  }
+
+  // What actually happened.
+  const played = worst.fen ? describeMoveAction(worst.fen, worst.playedUci) : null;
+  const playedDesc = played && played.facts.length ? ` It ${played.facts.join(' and ')}, but that wasn't the point of the position.` : '';
+  bits.push(`Instead ${worst.san} left you at ${after > 0 ? '+' : ''}${revPawns(after)}.${playedDesc}`);
+
+  return { text: bits.join(' '), moveNumber: worst.moveNumber, loss: worst.loss };
+}
+
+/* ---------- 2. The shape of the game ---------- */
+function revGameArc(annotations, playerColorCode, seed){
+  const out = [];
+  const sign = playerColorCode === 'w' ? 1 : -1;
+  const mine = annotations.filter(a => !a.estimated);
+  if (mine.length < 6) return out;
+
+  const series = mine.map(a => ({ mv: a.moveNumber, cp: a.evalAfter * sign }));
+  const peak = series.reduce((a, b) => (b.cp > a.cp ? b : a));
+  const trough = series.reduce((a, b) => (b.cp < a.cp ? b : a));
+  const final = series[series.length - 1];
+
+  // Were you ever winning, and did you keep it?
+  if (peak.cp >= 200 && final.cp <= -100){
+    out.push(revPick([
+      `You were winning at move ${peak.mv} (+${revPawns(peak.cp)}) and finished at ${revPawns(final.cp)}. Converting won positions is a separate skill from reaching them — when you're this far ahead, simplify and trade pieces rather than hunting for more.`,
+      `At move ${peak.mv} you had this won (+${revPawns(peak.cp)}). Letting it slip to ${revPawns(final.cp)} is the most fixable thing in this game: with a big lead, trade down and take the safe move over the clever one.`
+    ], seed));
+  } else if (peak.cp >= 150 && final.cp >= 150){
+    out.push(`You took the advantage around move ${peak.mv} and never gave it back. That's exactly how a won game should look.`);
+  } else if (trough.cp <= -200 && final.cp >= -50){
+    out.push(`You were in real trouble at move ${trough.mv} (${revPawns(trough.cp)}) and clawed back to ${revPawns(final.cp)}. Worth noting — defending well is a skill most players at this level don't have.`);
+  }
+
+  // Where the damage was concentrated.
+  const losses = annotations.filter(a => a.isPlayer && !a.estimated && a.loss > 50);
+  if (losses.length >= 2){
+    const nums = losses.map(a => a.moveNumber);
+    const span = Math.max(...nums) - Math.min(...nums);
+    if (span <= 6 && losses.length >= 3){
+      out.push(`Your errors bunched into moves ${Math.min(...nums)}–${Math.max(...nums)}. That's usually one uncomfortable position rather than ${losses.length} separate oversights — when a position starts feeling bad, slow down instead of playing on momentum.`);
+    } else if (span > 20){
+      out.push(`Your errors were spread across the whole game rather than clustered, which points at consistency rather than one bad patch.`);
+    }
+  }
+  return out;
+}
+
+/* ---------- 3. Named specifics instead of counts ---------- */
+function revStragglers(moves, playerColorCode){
+  const moved = new Set();
+  moves.filter(m => m.color === playerColorCode).forEach(m => moved.add(m.from));
+  const homeRank = playerColorCode === 'w' ? '1' : '8';
+  const start = { b:'knight', c:'bishop', d:'queen', f:'bishop', g:'knight', a:'rook', h:'rook' };
+  // A piece "never moved" if its starting square was never a from-square.
+  const idle = [];
+  for (const f of ['a','b','c','d','f','g','h']){
+    const sq = f + homeRank;
+    if (!moved.has(sq)) idle.push(`${start[f]} on ${sq}`);
+  }
+  if (idle.length < 2) return null;
+  const listed = idle.length <= 3 ? idle.join(', ') : idle.slice(0, 3).join(', ') + ` and ${idle.length - 3} more`;
+  return `Your ${listed} never moved all game. Naming them makes the point better than a count does: those were pieces you paid for and never used.`;
+}
+
+function revHangingDetail(annotations, seed){
+  const hangs = annotations.filter(a => a.isPlayer && /able to be won|capturable|hanging/i.test(a.text || ''));
+  if (hangs.length < 2) return null;
+  const where = hangs.slice(0, 4).map(a => a.moveNumber).join(', ');
+  return revPick([
+    `You left material loose on moves ${where}. Before committing, look at every one of your pieces your opponent can reach — that single scan removes most of these.`,
+    `Moves ${where} each left something takeable. A habit worth building: after choosing a move, check what it stops defending before you play it.`
+  ], seed);
+}
+
+function revPieceShuffle(moves, playerColorCode){
+  const early = moves.filter(m => m.color === playerColorCode).slice(0, 12);
+  const counts = {};
+  early.forEach(m => {
+    const key = m.piece + ':' + m.to;
+    counts[m.piece] = (counts[m.piece] || 0) + 1;
+  });
+  const worst = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  if (!worst || counts[worst] < 4 || worst === 'p') return null;
+  return `You moved your ${REV_PIECE[worst]}${counts[worst] > 4 ? 's' : ''} ${counts[worst]} times in the first dozen moves while other pieces sat still. Each repeat move is a tempo your opponent spends developing.`;
+}
+
+function revMissedMaterial(annotations, seed){
+  // Positions where the engine's move was a capture the player didn't take.
+  const missed = [];
+  for (const a of annotations){
+    if (!a.isPlayer || a.estimated || a.loss < 100 || !a.bestMove || !a.fen) continue;
+    try{
+      const probe = new Chess(a.fen);
+      const mv = probe.move({ from: a.bestMove.slice(0,2), to: a.bestMove.slice(2,4),
+                              promotion: a.bestMove[4] || 'q' });
+      if (mv && mv.captured && !a.captured){
+        missed.push({ moveNumber: a.moveNumber, piece: REV_PIECE[mv.captured], san: mv.san });
+      }
+    } catch(e){}
+  }
+  if (!missed.length) return null;
+  const first = missed[0];
+  if (missed.length === 1){
+    return `On move ${first.moveNumber} there was a free ${first.piece} available with ${first.san} and you played something else. Scan for captures first, every move — it's the cheapest habit in chess.`;
+  }
+  return revPick([
+    `You passed up material ${missed.length} times (starting with ${first.san} on move ${first.moveNumber}, winning a ${first.piece}). Before anything else, check every capture available to you.`,
+    `There were ${missed.length} moments where a capture was the best move and you played elsewhere — move ${first.moveNumber} (${first.san}) was the first. Captures first, then candidate moves.`
+  ], seed);
+}
+
+/* ---------- 4. Measured against your own history ---------- */
+async function revHistoryContext(thisGameId, accuracy, counts){
+  const out = [];
+  try{
+    /* Reviewed games store accuracy and counts at the TOP level of the record
+       (see updateStoredGame in the review runner), not under a .review key. */
+    const games = (await loadAllGames())
+      .filter(g => g.id !== thisGameId && typeof g.accuracy === 'number')
+      .sort((a, b) => b.date - a.date)
+      .slice(0, 10);
+    if (games.length < 3) return out;
+
+    const avg = games.reduce((s, g) => s + g.accuracy, 0) / games.length;
+    const delta = accuracy - avg;
+    if (Math.abs(delta) >= 4){
+      out.push(delta > 0
+        ? `That's ${delta.toFixed(1)} points above your average of ${avg.toFixed(1)}% over your last ${games.length} reviewed games — one of your better performances.`
+        : `That's ${Math.abs(delta).toFixed(1)} points below your recent average of ${avg.toFixed(1)}%, so this one was off your usual standard rather than typical of you.`);
+    } else {
+      out.push(`That's in line with your recent average of ${avg.toFixed(1)}% across your last ${games.length} reviewed games.`);
+    }
+
+    // Is the error type recurring, or was this a one-off?
+    const blunderGames = games.filter(g => g.counts && g.counts.blunder > 0).length;
+    if (counts.blunder > 0 && blunderGames >= Math.ceil(games.length * 0.6)){
+      out.push(`Blunders have shown up in ${blunderGames} of those ${games.length} games, so this is a pattern rather than a bad day. A five-minute tactics warm-up before you play tends to shift this more than studying openings does.`);
+    } else if (counts.blunder === 0 && blunderGames >= 3){
+      out.push(`No blunders here, against ${blunderGames} of your last ${games.length} games having at least one. That's real progress on the thing that costs most games.`);
+    }
+  } catch(e){ console.error('history context failed', e); }
+  return out;
+}
+
+/* ---------- 5. Don't repeat what your last few reviews said ---------- */
+function revRecentKeys(){
+  try{ return JSON.parse(localStorage.getItem('cfg:recentObs') || '[]'); }
+  catch(e){ return []; }
+}
+function revRememberKeys(keys){
+  try{
+    const merged = keys.concat(revRecentKeys()).slice(0, 12);
+    localStorage.setItem('cfg:recentObs', JSON.stringify(merged));
+  } catch(e){}
+}
+
+/* Choose up to `max` observations, preferring ones not used recently. */
+function revSelect(pool, max){
+  const recent = revRecentKeys();
+  const fresh = pool.filter(o => recent.indexOf(o.key) === -1);
+  const stale = pool.filter(o => recent.indexOf(o.key) !== -1);
+  const chosen = fresh.concat(stale).slice(0, max);
+  revRememberKeys(chosen.map(o => o.key));
+  return chosen.map(o => o.text);
+}
+
 function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, accuracy,
                              avgLoss, counts, annotations, totalMoves, styleName, plans,
-                             outcomeWord, unscored = 0, skipped = 0, scoredMoves = 0 }){
+                             outcomeWord, unscored = 0, skipped = 0, scoredMoves = 0,
+                             narrative = null }){
   const you = playerColorCode === 'w' ? 'White' : 'Black';
   const lines = [];
 
@@ -4967,6 +5211,12 @@ function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, ac
   }
   lines.push('');
 
+  if (narrative && narrative.critical){
+    lines.push('THE TURNING POINT —');
+    lines.push(narrative.critical.text);
+    lines.push('');
+  }
+
   // Pattern detection across the game
   const focus = [];
   const byPhase = { opening:0, middlegame:0, endgame:0 };
@@ -4999,16 +5249,41 @@ function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, ac
     focus.push('Keep drilling tactics daily and reviewing your own games; that combination moves ratings faster than anything else at this level.');
   }
 
-  if (plans && plans.length){
+  const arcLines = (narrative && narrative.arc) ? narrative.arc : [];
+  const specificLines = (narrative && narrative.specifics)
+    ? revSelect(narrative.specifics, 2) : [];
+  const wentBody = arcLines.concat(specificLines, plans || []);
+  if (wentBody.length){
     lines.push('HOW THE GAME WENT —');
-    plans.forEach(p => lines.push('• ' + p));
+    wentBody.slice(0, 5).forEach(p => lines.push('• ' + p));
     lines.push('');
   }
 
   lines.push('WHAT TO WORK ON —');
-  focus.slice(0, 3).forEach(f => lines.push('• ' + f));
+  const focusPool = focus.map((f, i) => ({ key: 'focus' + i + ':' + f.slice(0, 24), text: f }));
+  revSelect(focusPool, 3).forEach(f => lines.push('• ' + f));
   lines.push('');
-  lines.push(`TAKEAWAY — ${accuracy >= 85 ? 'A well-played game overall.' : accuracy >= 70 ? 'A reasonable game let down by a few specific moments.' : 'Several costly moments here — the good news is they\'re concrete and fixable.'} Step through the flagged moves above on the board to see exactly what changed.`);
+
+  if (narrative && narrative.history && narrative.history.length){
+    lines.push('COMPARED WITH YOUR RECENT GAMES —');
+    narrative.history.forEach(hh => lines.push('• ' + hh));
+    lines.push('');
+  }
+  const seedT = (narrative && narrative.seed) || 0;
+  const band = accuracy >= 85 ? 0 : accuracy >= 70 ? 1 : 2;
+  const takeaways = [
+    ['A well-played game overall.', 'Not much to fault here.', 'Solid from start to finish.'],
+    ['A reasonable game let down by a few specific moments.', 'The foundation was fine; a couple of moves decided it.', 'Mostly sound, with two or three moments that mattered.'],
+    ['Several costly moments here — the good news is they\'re concrete and fixable.', 'This one got away, but for reasons you can name and drill.', 'A rough game, though every error above is a specific habit rather than a mystery.']
+  ][band];
+  const closers = [
+    'Step through the flagged moves above on the board to see exactly what changed.',
+    narrative && narrative.critical
+      ? `If you only look at one thing, replay move ${narrative.critical.moveNumber}.`
+      : 'Replay the flagged moves on the board to see what shifted.',
+    'The puzzles tab has already pulled these positions out for you to retry.'
+  ];
+  lines.push(`TAKEAWAY — ${revPick(takeaways, seedT)} ${revPick(closers, seedT + 1)}`);
 
   return lines.join('\n');
 }
@@ -6670,6 +6945,45 @@ async function runSelfTests(){
     return true;
   });
 
+  check('review headers are all known to the typesetter', () => {
+    // A section the typesetter doesn't recognise renders as body text with a
+    // stray dash instead of a heading.
+    const emitted = ['RESULT','ACCURACY','OPENING','KEY MOMENTS','THE TURNING POINT',
+                     'HOW THE GAME WENT','WHAT TO WORK ON',
+                     'COMPARED WITH YOUR RECENT GAMES','TAKEAWAY','CHECK THIS'];
+    const missing = emitted.filter(s => CR_HEADINGS.indexOf(s) === -1);
+    return missing.length === 0 ? true : 'not styled: ' + missing.join(', ');
+  });
+
+  check('narrative phrasing varies between games but is stable per game', () => {
+    const a = revSeed('game-alpha'), b = revSeed('game-beta');
+    if (a === b) return 'two different ids hashed identically';
+    if (revSeed('game-alpha') !== a) return 'seed is not stable for one id';
+    const opts = ['one','two','three'];
+    if (revPick(opts, a) === undefined) return 'pick returned nothing';
+    // Across many ids we should see more than one phrasing used.
+    const used = new Set();
+    for (let i = 0; i < 30; i++) used.add(revPick(opts, revSeed('g' + i)));
+    return used.size > 1 ? true : 'every game picked the same phrasing';
+  });
+
+  check('observation selection prefers unseen items and records them', () => {
+    const before = localStorage.getItem('cfg:recentObs');
+    try{
+      localStorage.setItem('cfg:recentObs', JSON.stringify(['stale-key']));
+      const picked = revSelect([
+        { key:'stale-key', text:'old' },
+        { key:'fresh-key', text:'new' }
+      ], 1);
+      if (picked[0] !== 'new') return 'did not prefer the unseen observation';
+      if (revRecentKeys().indexOf('fresh-key') === -1) return 'chosen key was not remembered';
+      return true;
+    } finally {
+      if (before === null) localStorage.removeItem('cfg:recentObs');
+      else localStorage.setItem('cfg:recentObs', before);
+    }
+  });
+
   check('no two top-level functions share a name', () => {
     // A duplicate declaration silently overwrites the earlier one, which is
     // how the puzzle explanation ended up numbering a FEN character by
@@ -8151,8 +8465,9 @@ document.getElementById('scanSubmitBtn').addEventListener('click', () => finishS
    ============================================================ */
 
 const CR_HEADINGS = [
-  'RESULT', 'ACCURACY', 'OPENING', 'KEY MOMENTS', 'HOW THE GAME WENT',
-  'WHAT TO WORK ON', 'TAKEAWAY', 'CHECK THIS'
+  'RESULT', 'ACCURACY', 'OPENING', 'KEY MOMENTS', 'THE TURNING POINT',
+  'HOW THE GAME WENT', 'WHAT TO WORK ON', 'COMPARED WITH YOUR RECENT GAMES',
+  'TAKEAWAY', 'CHECK THIS'
 ];
 
 function crSeverityOf(text){
