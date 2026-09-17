@@ -1990,7 +1990,7 @@ const OPENING_LIBRARY = [
   ['A43','Stonewall Attack','w','d4 d5 e3 Nf6 Bd3 e6 f4 c5 c3 Nc6 Nd2 Bd6',
    'Build the f4-e3-d4 wall and attack the kingside. A simple, repeatable plan.'],
   ['C20','Bongcloud (novelty)','w','e4 e5 Ke2',
-   'Objectively terrible — the king blocks its own pieces. Included only because you will be asked about it.']
+   'Objectively terrible — the king blocks its own pieces. Included only because you will be asked about it.'],
 
   // ---------- added 2026-09-17: broader coverage, also feeds the bot book ----------
   ['B31','Sicilian: Rossolimo','w','e4 c5 Nf3 Nc6 Bb5 g6 Bxc6 dxc6 d3 Bg7 h3 Nf6',
@@ -2133,7 +2133,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17b · 130 openings + bot book';
+const BUILD = '2026-09-17c · handbook comma fix';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -6553,6 +6553,25 @@ async function runSelfTests(){
       { san:'e4' }, ['Qh8', 'Zz9']);
     if (!Array.isArray(broken) || broken.length !== 0) return 'broken line not handled';
     return true;
+  });
+
+  check('every library row is a well-formed 5-part entry', () => {
+    // A missing comma between two array literals is valid JS — it becomes a
+    // computed member access — so the array silently gains a broken element
+    // instead of failing to parse. That emptied the whole handbook once.
+    const bad = [];
+    OPENING_LIBRARY.forEach((row, i) => {
+      if (!Array.isArray(row) || row.length !== 5 ||
+          row.some(x => typeof x !== 'string')){
+        bad.push('index ' + i + ': ' + JSON.stringify(row).slice(0, 60));
+      }
+    });
+    return bad.length === 0 ? true : bad.join('; ');
+  });
+
+  check('every opening survives validation into the handbook', () => {
+    const dropped = OPENING_LIBRARY.length - OPENINGS_VALID.length;
+    return dropped === 0 ? true : dropped + ' opening(s) were dropped as invalid';
   });
 
   check('opening book indexes every library line', () => {
