@@ -47,6 +47,10 @@
     --square-select:#e0b45f;
     --square-move:#8ea876;
     --radius:3px;
+    /* Outcome colours, used by the row edge and the accuracy figure. */
+    --outcome-win:#5c9678;
+    --outcome-loss:#b1543a;
+    --outcome-draw:#0b0a08;
   }
 
   *{box-sizing:border-box;}
@@ -1490,65 +1494,74 @@
   }
 
 
-  /* ===== Mobile analysis rows: last in the sheet so nothing
-     later in the cascade can override the breakpoint rules. ===== */
-  /* ---- Mobile game row. Desktop keeps the original layout: the
-     mobile half is display:none until the breakpoint, and vice versa. ---- */
-  .m-row{display:none;}
-  .day-head{display:none;}
+  /* ===== Analysis rows: one layout at every width =====
+     The two-line row is now the layout on desktop too. Only the delete
+     affordance differs: swipe on touch widths, a visible button above them.
+     Last in the sheet so nothing later can override it. ===== */
+  .acc-desktop-only{display:none !important;}
+  .m-row{display:flex;flex-direction:column;gap:5px;width:100%;min-width:0;}
+
+  .acc-item{border-left:4px solid var(--felt-700);}
+  .acc-item.outcome-win{border-left-color:var(--outcome-win);}
+  .acc-item.outcome-loss{border-left-color:var(--outcome-loss);}
+  /* Black on a near-black page has no edge of its own, so a hairline just
+     inside keeps the draw bar readable without lightening the colour. */
+  .acc-item.outcome-draw{
+    border-left-color:var(--outcome-draw);
+    box-shadow:inset 1px 0 0 rgba(240,236,225,.20);
+  }
+
+  .m-top{display:flex;align-items:center;gap:7px;width:100%;}
+  .m-time{font-size:.76rem;color:#7d745f;}
+  .m-opp{
+    margin-left:auto;display:flex;align-items:center;gap:6px;
+    font-size:.76rem;color:var(--ivory-dim);
+  }
+  .m-disc{
+    width:13px;height:13px;border-radius:50%;flex-shrink:0;
+    background:#e9dcc0;border:1px solid var(--ivory);
+  }
+  .m-disc.b{background:var(--felt-800);border-color:#514734;}
+
+  .m-bot{display:flex;align-items:baseline;gap:9px;width:100%;}
+  .m-res{font-family:'Fraunces',serif;font-size:1.22rem;color:var(--ivory);}
+  .m-how{font-size:.82rem;color:var(--ivory-dim);}
+  .m-acc{margin-left:auto;font-size:1.02rem;font-weight:600;}
+  .m-acc.good{color:var(--outcome-win);}
+  .m-acc.mid{color:var(--brass);}
+  .m-acc.poor{color:var(--outcome-loss);}
+  .m-review{
+    margin-left:auto;font-size:.76rem;color:#7d745f;
+    border:1px solid var(--felt-700);border-radius:20px;padding:2px 10px;
+  }
+
+  .day-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    padding:16px 2px 7px;
+  }
+  .day-label{
+    font-family:'Fraunces',serif;font-size:.84rem;letter-spacing:.08em;
+    color:var(--brass);
+  }
+  .day-record{font-size:.78rem;color:var(--ivory-dim);}
+
   .acc-swipe{position:relative;overflow:hidden;}
   .acc-swipe-action{display:none;}
   .acc-swipe-track{position:relative;background:var(--felt-900);}
   .undo-bar{display:none;}
 
+  /* A little more room to breathe once there's width for it. */
+  @media (min-width:701px){
+    .acc-head{padding:13px 16px;}
+    .m-res{font-size:1.3rem;}
+  }
+
   @media (max-width:700px){
-    .acc-desktop-only{display:none !important;}
-    .m-row{
-      display:flex;flex-direction:column;gap:5px;width:100%;min-width:0;
-    }
     .acc-head{padding:10px 12px !important;}
     .acc-head-row .acc-del{display:none;}      /* swipe replaces it */
-    .acc-item{border-left:4px solid var(--felt-700);}
-    .acc-item.outcome-win{border-left-color:var(--emerald-bright);}
-    .acc-item.outcome-loss{border-left-color:var(--ember);}
-    .acc-item.outcome-draw{border-left-color:var(--ivory-dim);}
-
-    .m-top{display:flex;align-items:center;gap:6px;width:100%;}
-    .m-time{font-size:.72rem;color:#7d745f;}
-    .m-opp{
-      margin-left:auto;display:flex;align-items:center;gap:5px;
-      font-size:.72rem;color:var(--ivory-dim);
-    }
-    .m-disc{
-      width:13px;height:13px;border-radius:50%;flex-shrink:0;
-      background:#e9dcc0;border:1px solid var(--ivory);
-    }
-    .m-disc.b{background:var(--felt-800);border-color:#514734;}
-
-    .m-bot{display:flex;align-items:baseline;gap:8px;width:100%;}
-    .m-res{font-family:'Fraunces',serif;font-size:1.19rem;color:var(--ivory);}
-    .m-how{font-size:.78rem;color:var(--ivory-dim);}
-    .m-acc{margin-left:auto;font-size:1rem;font-weight:600;}
-    .m-acc.good{color:var(--emerald-bright);}
-    .m-acc.mid{color:var(--brass);}
-    .m-acc.poor{color:var(--ember);}
-    .m-review{
-      margin-left:auto;font-size:.72rem;color:#7d745f;
-      border:1px solid var(--felt-700);border-radius:20px;padding:2px 9px;
-    }
-
-    .day-head{
-      display:flex;align-items:baseline;justify-content:space-between;
-      padding:14px 2px 6px;
-    }
-    .day-label{
-      font-family:'Fraunces',serif;font-size:.8rem;letter-spacing:.08em;
-      color:var(--brass);
-    }
-    .day-record{font-size:.74rem;color:var(--ivory-dim);}
 
     /* Swipe: the red panel sits underneath, the track slides over it. */
-    .acc-swipe{background:var(--ember);}
+    .acc-swipe{background:var(--outcome-loss);}
     .acc-swipe-action{
       display:flex;position:absolute;top:0;right:0;bottom:0;width:104px;
       align-items:center;justify-content:center;
@@ -1607,6 +1620,9 @@
     --square-select:#d4a95c;
     --square-move:#9bb082;
     --radius:10px;
+    --outcome-win:#6f9c80;
+    --outcome-loss:#cc8d72;
+    --outcome-draw:#000000;
   }
   /* Flat ground: the two radial washes read as dated on a phone. */
   html.modern body{background:#14130f;}
@@ -2523,7 +2539,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17i · handbook flow + volume in settings';
+const BUILD = '2026-09-17j · analysis rows on desktop too';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -7727,6 +7743,41 @@ async function runSelfTests(){
       sound.setVolume(startVol);
       refreshSoundUI();
     }
+  });
+
+  check('outcome colours are defined and distinct in every appearance', () => {
+    const root = document.documentElement;
+    const before = localStorage.getItem('theme');
+    const read = () => {
+      const s = getComputedStyle(root);
+      return ['--outcome-win','--outcome-loss','--outcome-draw']
+        .map(v => s.getPropertyValue(v).trim());
+    };
+    try{
+      for (const mode of ['classic','refined','modern']){
+        setTheme(mode);
+        const [w, l, d] = read();
+        if (!w || !l || !d) return mode + ': a token is empty';
+        if (w === l || w === d || l === d) return mode + ': colours are not distinct';
+      }
+      return true;
+    } finally {
+      setTheme(before === 'classic' || before === 'refined' ? before : 'modern');
+    }
+  });
+
+  check('every game row renders the two-line layout, not the old pills', () => {
+    const items = document.querySelectorAll('#analysisContent .acc-item, .acc-item');
+    if (!items.length) return true;               // no saved games yet
+    let missing = 0, visiblePills = 0;
+    items.forEach(it => {
+      if (!it.querySelector('.m-row')) missing++;
+      const old = it.querySelector('.acc-desktop-only');
+      if (old && getComputedStyle(old).display !== 'none') visiblePills++;
+    });
+    if (missing) return missing + ' row(s) without the two-line layout';
+    if (visiblePills) return visiblePills + ' row(s) still showing the old pills';
+    return true;
   });
 
   check('no two top-level functions share a name', () => {
