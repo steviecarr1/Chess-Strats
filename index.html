@@ -2133,7 +2133,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17c · handbook comma fix';
+const BUILD = '2026-09-17d · transposition key fix';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -5917,9 +5917,23 @@ let BOT_BOOK = null;   // built lazily: fen-without-clocks -> [entries]
 
 /* Strip the halfmove/fullmove counters so two routes to the same position
    share a key. Castling and en-passant rights stay: they're real differences. */
-function bookKey(fen){
+function bookKey(fen, chessObj){
   const p = fen.split(' ');
-  return p.slice(0, 4).join(' ');
+  /* chess.js sets the en-passant square after ANY double pawn push, even when
+     no capture is possible. That makes 1.d4 Nf6 2.c4 and 1.c4 Nf6 2.d4 — the
+     same position — produce different keys, which defeats the whole point of
+     keying on position. The FEN standard only records it when the capture is
+     actually available, so normalise to that. */
+  let ep = p[3];
+  if (ep && ep !== '-'){
+    let real = false;
+    try{
+      const g = chessObj || new Chess(fen);
+      real = g.moves({ verbose: true }).some(m => m.flags.indexOf('e') !== -1);
+    } catch(e){ real = false; }
+    if (!real) ep = '-';
+  }
+  return p.slice(0, 3).join(' ') + ' ' + ep;
 }
 
 function buildOpeningBook(){
@@ -5928,7 +5942,7 @@ function buildOpeningBook(){
     const g = new Chess();
     const sans = line.trim().split(/\s+/);
     for (let ply = 0; ply < sans.length; ply++){
-      const key = bookKey(g.fen());
+      const key = bookKey(g.fen(), g);
       const mv = g.move(sans[ply]);
       if (!mv) break;                       // invalid line: stop, don't poison the book
       (book[key] = book[key] || []).push({
@@ -5978,7 +5992,7 @@ function chooseBookMove(g, elo, styleKey){
   if (ply >= tier.maxPly) return null;
   if (Math.random() < tier.leaveChance) return null;
 
-  const entries = getOpeningBook()[bookKey(g.fen())];
+  const entries = getOpeningBook()[bookKey(g.fen(), g)];
   if (!entries || !entries.length) return null;
 
   // Only moves that are actually legal here (guards against a bad key match).
@@ -6530,12 +6544,16 @@ async function runSelfTests(){
   });
 
   check('refutation cost reports what the reply actually wins', () => {
-    // Black has just played Nc6-b4?? and White wins the knight with a2-a3.
-    // Build it directly: knight on b4, white pawn a2, white to move.
-    const fen = '4k3/8/8/8/1n6/8/P7/4K3 w - - 0 1';
-    const g = new Chess(fen);
-    const cost = refutationCost(fen, ['a3'], { to:'b4', piece:'n' });
-    if (!cost || !/takes the knight/.test(cost)) return 'got: ' + cost;
+    // White pawn on a3, black knight on b4: axb4 actually captures it.
+    // (a2-a3 merely ATTACKS b4 — reporting a capture there would be wrong.)
+    const fen = '4k3/8/8/8/1n6/P7/8/4K3 w - - 0 1';
+    const cost = refutationCost(fen, ['axb4'], { to:'b4', piece:'n' });
+    if (!cost || !/takes the knight you just moved there/.test(cost)) return 'got: ' + cost;
+
+    // An attacking-but-not-capturing reply must report no material cost.
+    const attackOnly = refutationCost('4k3/8/8/8/1n6/8/P7/4K3 w - - 0 1',
+      ['a3'], { to:'b4', piece:'n' });
+    if (attackOnly !== null) return 'claimed a capture that did not happen: ' + attackOnly;
 
     // A quiet reply should report no material cost rather than invent one.
     const quiet = refutationCost('4k3/8/8/8/8/8/P7/4K3 w - - 0 1', ['a3'], { to:'b4', piece:'n' });
@@ -6605,8 +6623,15 @@ async function runSelfTests(){
     // resolve to the same book key, which is the point of keying on FEN.
     const a = new Chess(); ['d4','Nf6','c4'].forEach(m => a.move(m));
     const b = new Chess(); ['c4','Nf6','d4'].forEach(m => b.move(m));
-    return bookKey(a.fen()) === bookKey(b.fen()) ? true
-      : 'keys differ:\n' + bookKey(a.fen()) + '\n' + bookKey(b.fen());
+    if (bookKey(a.fen(), a) !== bookKey(b.fen(), b)){
+      return 'keys differ:\n' + bookKey(a.fen(), a) + '\n' + bookKey(b.fen(), b);
+    }
+    // ...but a REAL en-passant right must still be kept, or two genuinely
+    // different positions would collapse into one key.
+    const ep = new Chess();
+    ['e4','a6','e5','d5'].forEach(m => ep.move(m));   // d5 allows exd6 e.p.
+    if (bookKey(ep.fen(), ep).split(' ')[3] === '-') return 'a real e.p. right was discarded';
+    return true;
   });
 
   check('book respects tier depth and always returns legal moves', () => {
