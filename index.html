@@ -1912,7 +1912,7 @@
   html.modern .setup-fields select{
     appearance:none;
     -webkit-appearance:none;
-    background:none;
+    background-color:var(--felt-800);
     border:none;
     border-radius:0;
     min-height:0;
@@ -2016,6 +2016,36 @@
     .play-panel .movelist-wrap{flex:1;}
     .play-panel .panel-empty{flex:1;}
     .play-panel .btn-row{margin-top:0;}
+  }
+
+
+  /* ===== Two fixes =====
+     1) [hidden] is display:none in the UA stylesheet, which ANY author rule
+        that sets display will beat on specificity. Every element I set
+        hidden also has a class giving it display:flex/grid, so they were all
+        showing regardless — the empty move table and the Undo/Resign row
+        appeared before a game had started. This has to win.
+     2) A select with appearance:none and no background colour opens a white
+        native popup while its option text inherits the light page colour,
+        which is unreadable. Give the control a real background, colour the
+        options explicitly, and tell the platform this is a dark UI so native
+        widgets (popups, scrollbars, focus rings) follow.  ===== */
+  [hidden]{display:none !important;}
+
+  html.modern{color-scheme:dark;}
+
+  html.modern .setup-fields select{
+    background-color:var(--felt-800);
+    color:var(--ivory);
+  }
+  html.modern .setup-fields select option,
+  html.modern select option{
+    background-color:var(--felt-900);
+    color:var(--ivory);
+  }
+  html.modern select:focus-visible{
+    outline:2px solid var(--brass);
+    outline-offset:2px;
   }
 
 </style>
@@ -2702,7 +2732,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17p · full-height play panel';
+const BUILD = '2026-09-17q · hidden + dropdown fixes';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -8106,15 +8136,21 @@ async function runSelfTests(){
 
     const wasActive = gameActive;
     try{
+      /* Check COMPUTED display, not the .hidden property: [hidden] loses to
+         any author rule that sets display, which is exactly the bug this
+         test missed the first time. */
+      const shown = id => getComputedStyle(document.getElementById(id)).display !== 'none';
+
       setPanelMode(true);
-      if (!document.getElementById('setupBlock').hidden === false) { /* expanded is fine */ }
-      if (document.getElementById('playerStrips').hidden) return 'strips hidden while playing';
-      if (!document.getElementById('panelEmpty').hidden) return 'placeholder shown while playing';
-      if (document.getElementById('setupSummary').hidden) return 'summary hidden while playing';
+      if (!shown('playerStrips')) return 'strips not visible while playing';
+      if (shown('panelEmpty')) return 'placeholder still visible while playing';
+      if (!shown('setupSummary')) return 'collapsed summary not visible while playing';
 
       setPanelMode(false);
-      if (!document.getElementById('playerStrips').hidden) return 'strips shown before a game';
-      if (document.getElementById('setupBlock').hidden) return 'setup collapsed before a game';
+      if (shown('playerStrips')) return 'strips still visible before a game';
+      if (shown('moveListWrap')) return 'empty move table visible before a game';
+      if (shown('gameBtnRow')) return 'Undo/Resign visible before a game';
+      if (!shown('setupBlock')) return 'setup not visible before a game';
       return true;
     } finally {
       setPanelMode(wasActive);
