@@ -2092,6 +2092,63 @@
     html.modern nav.tabs button{font-size:.84rem;}
   }
 
+
+  /* ===== Evaluation bar ===== */
+  .board-with-eval{
+    display:flex;
+    align-items:stretch;
+    justify-content:center;
+    gap:10px;
+    width:100%;
+    min-width:0;
+  }
+  /* A flex item defaults to width:auto, which shrinks to its contents — the
+     same collapse that justify-self:center caused earlier. The frame has to be
+     told to fill the row; max-width still caps it. */
+  .board-with-eval .board-frame{
+    flex:1 1 auto;
+    width:100%;
+    min-width:0;
+  }
+  .eval-bar{
+    position:relative;
+    width:16px;
+    flex-shrink:0;
+    border-radius:8px;
+    overflow:hidden;
+    background:var(--felt-800);
+    align-self:stretch;
+  }
+  .eval-fill{
+    position:absolute;
+    left:0;right:0;bottom:0;
+    height:50%;
+    background:#e6d5b8;
+    transition:height .35s ease;
+  }
+  .eval-num{
+    position:absolute;
+    left:50%;
+    bottom:6px;
+    transform:translateX(-50%);
+    font-family:'Inter',sans-serif;
+    font-size:.56rem;
+    font-weight:700;
+    color:var(--felt-950);
+    writing-mode:vertical-rl;
+    letter-spacing:.02em;
+    pointer-events:none;
+  }
+  .eval-num.ahead{color:var(--felt-950);}
+  @media (max-width:700px){
+    .board-with-eval{gap:7px;}
+    .eval-bar{width:11px;border-radius:6px;}
+    .eval-num{font-size:.5rem;bottom:4px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .eval-fill{transition:none;}
+  }
+
 </style>
 </head>
 <body>
@@ -2124,8 +2181,14 @@
   <section class="view active" id="view-play">
     <div class="play-grid">
       <div>
-        <div class="board-frame">
-          <div class="board" id="board"></div>
+        <div class="board-with-eval">
+          <div class="eval-bar" id="evalBar" title="Evaluation" aria-hidden="true">
+            <div class="eval-fill" id="evalFill"></div>
+            <span class="eval-num" id="evalNum"></span>
+          </div>
+          <div class="board-frame">
+            <div class="board" id="board"></div>
+          </div>
         </div>
 
       </div>
@@ -2322,6 +2385,13 @@
           Running build: <strong id="buildStamp">—</strong>
         </p>
         <div class="field" style="margin-top:14px;">
+          <label for="evalBarToggle">Evaluation bar</label>
+          <select id="evalBarToggle">
+            <option value="on">Show it beside the board</option>
+            <option value="off">Hide it — work the position out yourself</option>
+          </select>
+        </div>
+        <div class="field">
           <label for="volSlider2">Sound volume</label>
           <input id="volSlider2" type="range" min="0" max="100" step="5" aria-label="Volume">
         </div>
@@ -2780,7 +2850,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17s · Scholar\'s Mate + trap handling';
+const BUILD = '2026-09-17u · board width fix';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -3328,6 +3398,101 @@ function squareName(row, col, flipped){
   return file + rank;
 }
 
+/* ============================================================
+   EVALUATION BAR
+   A live read on who is better, beside the board. Optional: it does some
+   of the thinking for you, which is a real trade-off in a training app,
+   so it can be switched off in Settings.
+   ============================================================ */
+
+let evalBarOn = true;
+let evalToken = 0;
+
+function loadEvalBarPref(){
+  try{ evalBarOn = localStorage.getItem('cfg:evalBar') !== 'off'; }
+  catch(e){ evalBarOn = true; }
+  applyEvalBarPref();
+}
+
+function setEvalBarPref(on){
+  evalBarOn = !!on;
+  try{ localStorage.setItem('cfg:evalBar', evalBarOn ? 'on' : 'off'); } catch(e){}
+  applyEvalBarPref();
+  if (evalBarOn) scheduleEvalUpdate();
+}
+
+function applyEvalBarPref(){
+  const bar = document.getElementById('evalBar');
+  if (bar) bar.hidden = !evalBarOn;
+  const sel = document.getElementById('evalBarToggle');
+  if (sel) sel.value = evalBarOn ? 'on' : 'off';
+}
+
+/* Paint the bar from a white-perspective centipawn score. */
+function paintEvalBar(cpWhite, mateIn){
+  const fill = document.getElementById('evalFill');
+  const num = document.getElementById('evalNum');
+  if (!fill || !num) return;
+
+  let pct, label;
+  if (mateIn !== null && mateIn !== undefined){
+    pct = mateIn > 0 ? 100 : 0;
+    label = 'M' + Math.abs(mateIn);
+  } else {
+    const cp = Math.max(-1000, Math.min(1000, cpWhite || 0));
+    // Flatten the extremes so ordinary positions still move the bar.
+    pct = 50 + 50 * Math.tanh(cp / 400);
+    const pawns = cp / 100;
+    label = (pawns > 0 ? '+' : '') + pawns.toFixed(1);
+  }
+  // The bar is drawn from the bottom in White's favour, and flipped with
+  // the board so your own side is always the near end.
+  const youAreBlack = playerColor === 'b';
+  fill.style.height = (youAreBlack ? 100 - pct : pct) + '%';
+  num.textContent = label;
+  num.classList.toggle('ahead', (youAreBlack ? -cpWhite : cpWhite) > 0);
+}
+
+function resetEvalBar(){
+  const fill = document.getElementById('evalFill');
+  const num = document.getElementById('evalNum');
+  if (fill) fill.style.height = '50%';
+  if (num) num.textContent = '';
+}
+
+/* Ask the engine where the game stands. Deliberately shallow: this runs
+   after every move and must not compete with the bot for thinking time. */
+async function scheduleEvalUpdate(){
+  if (!evalBarOn) return;
+  const token = ++evalToken;
+  try{
+    if (game.game_over()){
+      if (game.in_checkmate()){
+        const winnerIsWhite = game.turn() === 'b';
+        paintEvalBar(winnerIsWhite ? 1000 : -1000, null);
+      } else {
+        paintEvalBar(0, null);                      // draw of some kind
+      }
+      return;
+    }
+    const engine = await loadEngine();
+    if (!engine || token !== evalToken) return;
+    const res = await engine.analyse(game.fen(), { depth: 8, timeout: 3000 });
+    if (token !== evalToken) return;                // a newer move superseded this
+    /* analyse() reports from the side to move; the bar is white-perspective. */
+    const sign = game.turn() === 'w' ? 1 : -1;
+    const mate = (res.mateIn === null || res.mateIn === undefined)
+      ? null : res.mateIn * sign;
+    paintEvalBar((res.scoreCp || 0) * sign, mate);
+  } catch(e){
+    /* An engine hiccup shouldn't disturb the game. */
+  } finally {
+    /* analyse() forces MultiPV 1 and full strength, so make the bot reapply
+       its own tier settings before it moves again. */
+    engineConfigured = null;
+  }
+}
+
 function renderBoard(){
   renderChessBoard(boardEl, game, {
     flipped: playerColor === 'b',
@@ -3339,6 +3504,7 @@ function renderBoard(){
     onSquareClick: onSquareClick
   });
   renderCaptures();
+  scheduleEvalUpdate();
 }
 
 function renderCaptures(){
@@ -3604,6 +3770,7 @@ document.getElementById('newGameBtn').addEventListener('click', () => {
   evalTrace = [];
   gameActive = true;
   setPanelMode(true);
+  resetEvalBar();
   botStyle = STYLE_KEYS[Math.floor(Math.random() * STYLE_KEYS.length)];
   lastBookOpening = null;
   document.getElementById('resignBtn').disabled = false;
@@ -7073,6 +7240,12 @@ document.getElementById('muteBtn').addEventListener('click', () => {
   refreshSoundUI();
 });
 
+const evalBarToggle = document.getElementById('evalBarToggle');
+if (evalBarToggle){
+  evalBarToggle.addEventListener('change', (e) => setEvalBarPref(e.target.value === 'on'));
+}
+loadEvalBarPref();
+
 const setupChangeBtn = document.getElementById('setupChangeBtn');
 if (setupChangeBtn){
   setupChangeBtn.addEventListener('click', () => {
@@ -8153,6 +8326,11 @@ async function runSelfTests(){
       const colW = col.getBoundingClientRect().width;
       if (colW >= 800 && r.width < 700)
         return 'board is only ' + Math.round(r.width) + 'px in a ' + Math.round(colW) + 'px column';
+      /* At any width the board should use most of the room it is given.
+         Adding the eval bar made the frame a flex item, which silently
+         collapsed it to its content width on phones. */
+      if (colW > 0 && r.width < colW * 0.6)
+        return 'board uses only ' + Math.round(r.width) + 'px of a ' + Math.round(colW) + 'px row';
     }
     return true;
   });
@@ -8241,6 +8419,43 @@ async function runSelfTests(){
       if (rows.size > 2) return 'tabs spread over ' + rows.size + ' lines, expected at most 2';
     }
     return true;
+  });
+
+  check('evaluation bar maps scores to the right end of the bar', () => {
+    const fill = document.getElementById('evalFill');
+    const num = document.getElementById('evalNum');
+    if (!fill || !num) return 'eval bar missing';
+    const wasColor = playerColor;
+    const wasOn = evalBarOn;
+    try{
+      evalBarOn = true;
+      playerColor = 'w';
+      paintEvalBar(0, null);
+      if (Math.abs(parseFloat(fill.style.height) - 50) > 1) return 'level position is not centred';
+      paintEvalBar(900, null);
+      const big = parseFloat(fill.style.height);
+      paintEvalBar(-900, null);
+      const small = parseFloat(fill.style.height);
+      if (!(big > 80 && small < 20)) return 'white/black advantage not at opposite ends: ' + big + '/' + small;
+
+      paintEvalBar(300, null);
+      if (num.textContent !== '+3.0') return 'label wrong: ' + num.textContent;
+      paintEvalBar(0, 3);
+      if (num.textContent !== 'M3') return 'mate label wrong: ' + num.textContent;
+
+      // Playing Black flips the bar so your own side is the near end.
+      playerColor = 'w'; paintEvalBar(600, null);
+      const asWhite = parseFloat(fill.style.height);
+      playerColor = 'b'; paintEvalBar(600, null);
+      const asBlack = parseFloat(fill.style.height);
+      if (Math.abs((asWhite + asBlack) - 100) > 1)
+        return 'bar does not flip for Black: ' + asWhite + '/' + asBlack;
+      return true;
+    } finally {
+      playerColor = wasColor;
+      evalBarOn = wasOn;
+      resetEvalBar();
+    }
   });
 
   check('no two top-level functions share a name', () => {
