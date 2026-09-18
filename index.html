@@ -1818,6 +1818,22 @@
     html.modern header{padding:11px 12px;}
   }
 
+  /* The compact header was sized for a phone. On a desktop-width bar the
+     same values read as undersized, so scale the bar with the viewport. */
+  @media (min-width:701px){
+    html.modern header{padding:16px 22px;}
+    html.modern header h1{font-size:1.26rem;}
+    html.modern header h1::before{width:8px;height:8px;}
+    html.modern nav.tabs{padding:0 22px;gap:26px;}
+    html.modern nav.tabs button{font-size:1rem;padding:0 0 14px;}
+  }
+  @media (min-width:1500px){
+    html.modern header{padding:19px 26px;}
+    html.modern header h1{font-size:1.4rem;}
+    html.modern nav.tabs{padding:0 26px;gap:32px;}
+    html.modern nav.tabs button{font-size:1.06rem;padding:0 0 16px;}
+  }
+
 
   /* ---- Match setup: two compact labelled boxes side by side ----
      The wrapper is display:contents outside Modern, so Classic and Refined
@@ -2539,7 +2555,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17j · analysis rows on desktop too';
+const BUILD = '2026-09-17k · header scales on desktop';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
