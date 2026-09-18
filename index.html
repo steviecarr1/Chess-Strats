@@ -2048,6 +2048,50 @@
     outline-offset:2px;
   }
 
+
+  /* ===== Mobile header: centred wordmark, tabs on two lines =====
+     The tab row used to scroll horizontally, which hides half the tabs behind
+     a gesture. Nine tabs wrap onto two centred lines instead. ===== */
+  @media (max-width:700px){
+    html.modern header{
+      position:relative;
+      flex-direction:column;
+      align-items:center;
+      padding:13px 46px 11px;      /* room for the sound button on the right */
+      gap:0;
+    }
+    html.modern header h1{
+      justify-content:center;
+      text-align:center;
+      font-size:1.08rem;
+    }
+    html.modern .sound-control{
+      position:absolute;
+      right:10px;
+      top:11px;
+      margin-left:0;
+    }
+
+    html.modern nav.tabs{
+      flex-wrap:wrap;
+      justify-content:center;
+      overflow-x:visible;          /* was a scroller */
+      row-gap:0;
+      column-gap:14px;
+      padding:8px 10px 0;
+    }
+    html.modern nav.tabs::-webkit-scrollbar{display:none;}
+    html.modern nav.tabs button{
+      font-size:.88rem;
+      padding:5px 0 8px;
+      white-space:nowrap;
+    }
+  }
+  @media (max-width:420px){
+    html.modern nav.tabs{column-gap:11px;}
+    html.modern nav.tabs button{font-size:.84rem;}
+  }
+
 </style>
 </head>
 <body>
@@ -2732,7 +2776,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17q · hidden + dropdown fixes';
+const BUILD = '2026-09-17r · mobile header centred, tabs wrap';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -8155,6 +8199,24 @@ async function runSelfTests(){
     } finally {
       setPanelMode(wasActive);
     }
+  });
+
+  check('mobile tab bar wraps instead of scrolling sideways', () => {
+    if (window.innerWidth > 700) return true;
+    if (!document.documentElement.classList.contains('modern')) return true;
+    const tabs = document.querySelector('nav.tabs');
+    if (!tabs) return true;
+    const s = getComputedStyle(tabs);
+    if (s.flexWrap !== 'wrap') return 'tab bar is not wrapping';
+    // Nothing should be reachable only by scrolling.
+    if (tabs.scrollWidth > tabs.clientWidth + 2)
+      return 'tab bar still overflows by ' + (tabs.scrollWidth - tabs.clientWidth) + 'px';
+    const btns = Array.from(tabs.querySelectorAll('button'));
+    if (btns.length){
+      const rows = new Set(btns.map(b => Math.round(b.getBoundingClientRect().top)));
+      if (rows.size > 2) return 'tabs spread over ' + rows.size + ' lines, expected at most 2';
+    }
+    return true;
   });
 
   check('no two top-level functions share a name', () => {
