@@ -2636,6 +2636,10 @@ const OPENING_LIBRARY = [
    'Objectively terrible — the king blocks its own pieces. Included only because you will be asked about it.'],
 
   // ---------- added 2026-09-17: broader coverage, also feeds the bot book ----------
+  ['C20','Scholar\'s Mate (trap)','w','e4 e5 Bc4 Nc6 Qh5 Nf6 Qxf7#',
+   'The four-move mate. Worth knowing so you can spot it and stop it — Qh5 and Bc4 both aim at f7, the only square defended by nothing but the king. Against any reasonable defence the early queen just gets chased around, so don\'t rely on it.'],
+  ['C20','Scholar\'s Mate Defence','b','e4 e5 Bc4 Nc6 Qh5 g6 Qf3 Nf6 Ne2 Bg7 d3 d6',
+   'How to punish the four-move mate. g6 blocks the queen and gains a tempo, Nf6 develops with another hit on her, and Black comes out ahead in development while White\'s queen retreats.'],
   ['B31','Sicilian: Rossolimo','w','e4 c5 Nf3 Nc6 Bb5 g6 Bxc6 dxc6 d3 Bg7 h3 Nf6',
    'White trades the bishop for the knight straight away and plays against your doubled pawns. Very common at club level.'],
   ['B23','Sicilian: Grand Prix Attack','w','e4 c5 Nc3 Nc6 f4 g6 Nf3 Bg7 Bc4 e6 f5 Nge7',
@@ -2776,7 +2780,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17r · mobile header centred, tabs wrap';
+const BUILD = '2026-09-17s · Scholar\'s Mate + trap handling';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -7196,12 +7200,18 @@ function bookKey(fen, chessObj){
 function buildOpeningBook(){
   const book = {};
   for (const [eco, name, side, line] of OPENING_LIBRARY){
+    /* A trap line only works because the defender blunders. Indexing that
+       blunder would put it in the bot's repertoire — a bot playing Black
+       could pick 3...Nf6?? and walk into mate. For these, book only the
+       moves of the side springing the trap. */
+    const trapSide = /\(trap\)/i.test(name) ? side : null;
     const g = new Chess();
     const sans = line.trim().split(/\s+/);
     for (let ply = 0; ply < sans.length; ply++){
       const key = bookKey(g.fen(), g);
       const mv = g.move(sans[ply]);
       if (!mv) break;                       // invalid line: stop, don't poison the book
+      if (trapSide && mv.color !== trapSide) continue;
       (book[key] = book[key] || []).push({
         uci: mv.from + mv.to + (mv.promotion || ''),
         san: mv.san,
@@ -7847,6 +7857,20 @@ async function runSelfTests(){
   check('every opening survives validation into the handbook', () => {
     const dropped = OPENING_LIBRARY.length - OPENINGS_VALID.length;
     return dropped === 0 ? true : dropped + ' opening(s) were dropped as invalid';
+  });
+
+  check('trap lines never teach the bot the losing side of the trap', () => {
+    // After 1.e4 e5 2.Bc4 Nc6 3.Qh5, Black's 3...Nf6 allows Qxf7#. The book
+    // must not offer it.
+    const g = new Chess();
+    ['e4','e5','Bc4','Nc6','Qh5'].forEach(m => g.move(m));
+    const entries = getOpeningBook()[bookKey(g.fen(), g)] || [];
+    const blunder = entries.filter(e => e.san === 'Nf6');
+    if (blunder.length) return 'book offers 3...Nf6, which loses to Qxf7#';
+    // The defence to it must still be there.
+    if (!entries.some(e => e.san === 'g6'))
+      return 'the defence 3...g6 is missing from the book';
+    return true;
   });
 
   check('opening book indexes every library line', () => {
