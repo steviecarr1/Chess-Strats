@@ -1840,15 +1840,41 @@
   /* The compact header was sized for a phone. On a desktop-width bar the
      same values read as undersized, so scale the bar with the viewport. */
   @media (min-width:701px){
-    html.modern header{padding:16px 22px;}
-    html.modern header h1{font-size:1.26rem;}
+    /* Centred lockup: wordmark over the tabs, both on the page's centre line.
+       The sound control is taken out of the flow and pinned right, otherwise
+       its width would push the wordmark off centre. */
+    html.modern header{
+      position:relative;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      padding:18px 22px 14px;
+      gap:0;
+    }
+    html.modern header h1{
+      font-size:1.26rem;
+      justify-content:center;
+      text-align:center;
+    }
     html.modern header h1::before{width:8px;height:8px;}
-    html.modern nav.tabs{padding:0 22px;gap:26px;}
+    html.modern .sound-control{
+      position:absolute;
+      right:20px;
+      top:50%;
+      transform:translateY(-50%);
+      margin-left:0;
+    }
+    html.modern nav.tabs{
+      padding:0 22px;
+      gap:26px;
+      justify-content:center;
+    }
     html.modern nav.tabs button{font-size:1rem;padding:0 0 14px;}
   }
   @media (min-width:1500px){
-    html.modern header{padding:19px 26px;}
+    html.modern header{padding:22px 26px 16px;}
     html.modern header h1{font-size:1.4rem;}
+    html.modern .sound-control{right:26px;}
     html.modern nav.tabs{padding:0 26px;gap:32px;}
     html.modern nav.tabs button{font-size:1.06rem;padding:0 0 16px;}
   }
@@ -2574,7 +2600,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17n · board collapse fix';
+const BUILD = '2026-09-17o · centred header lockup';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -7838,6 +7864,30 @@ async function runSelfTests(){
       const colW = col.getBoundingClientRect().width;
       if (colW >= 800 && r.width < 700)
         return 'board is only ' + Math.round(r.width) + 'px in a ' + Math.round(colW) + 'px column';
+    }
+    return true;
+  });
+
+  check('the wordmark and tabs share the page centre line on desktop', () => {
+    if (window.innerWidth < 701) return true;        // phone layout is left-aligned
+    const root = document.documentElement;
+    if (!root.classList.contains('modern')) return true;
+    const head = document.querySelector('header');
+    const h1 = head && head.querySelector('h1');
+    const tabs = document.querySelector('nav.tabs');
+    if (!head || !h1 || !tabs) return true;
+    const mid = el => { const r = el.getBoundingClientRect(); return r.left + r.width / 2; };
+    const headMid = mid(head);
+    // The sound control is absolutely positioned so it can't skew the centre.
+    if (Math.abs(mid(h1) - headMid) > 12)
+      return 'wordmark is off centre by ' + Math.round(Math.abs(mid(h1) - headMid)) + 'px';
+    const btns = Array.from(tabs.querySelectorAll('button'));
+    if (btns.length){
+      const span = btns[btns.length - 1].getBoundingClientRect().right
+                 - btns[0].getBoundingClientRect().left;
+      const tabsMid = btns[0].getBoundingClientRect().left + span / 2;
+      if (Math.abs(tabsMid - headMid) > 14)
+        return 'tab row is off centre by ' + Math.round(Math.abs(tabsMid - headMid)) + 'px';
     }
     return true;
   });
