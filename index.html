@@ -1940,6 +1940,84 @@
     html.modern .setup-fields select{font-size:.86rem;}
   }
 
+
+  /* ===== PC play panel: full-height column =====
+     The panel used to be a short card top-aligned against a 1000px+ board,
+     leaving most of the column empty. Now it matches the board's height and
+     the move table takes the slack. ===== */
+  .setup-summary{
+    display:flex;align-items:center;gap:10px;
+    background:var(--felt-800);border-radius:10px;padding:11px 13px;
+    font-size:.86rem;color:var(--ivory);
+  }
+  .setup-change{
+    margin-left:auto;background:none;border:none;padding:0;cursor:pointer;
+    color:var(--brass);font-family:'Inter',sans-serif;font-size:.8rem;
+  }
+  .setup-change:hover{color:var(--brass-bright);text-decoration:underline;}
+
+  .player-strips{display:flex;flex-direction:column;gap:9px;}
+  .pstrip{display:flex;align-items:center;gap:9px;min-width:0;}
+  .pstrip-disc{
+    width:22px;height:22px;border-radius:6px;flex-shrink:0;
+    background:var(--felt-800);border:1px solid var(--felt-700);
+  }
+  .pstrip-disc.w{background:#e6d5b8;border-color:var(--ivory);}
+  .pstrip-disc.b{background:var(--felt-800);border-color:#514734;}
+  .pstrip-name{font-size:.86rem;color:var(--ivory);white-space:nowrap;}
+  .pstrip .cap-row{
+    font-size:.9rem;color:var(--ivory-dim);min-width:0;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis;
+  }
+  .pstrip-diff{
+    margin-left:auto;font-size:.8rem;color:var(--ivory-dim);flex-shrink:0;
+  }
+  .pstrip-diff.up{color:var(--outcome-win);font-weight:600;}
+
+  .movelist-wrap{
+    display:flex;flex-direction:column;min-height:0;
+    background:var(--felt-950);border-radius:10px;overflow:hidden;
+  }
+  .movelist-head{
+    display:grid;grid-template-columns:44px 1fr 1fr;
+    padding:8px 12px;font-size:.64rem;letter-spacing:.07em;
+    text-transform:uppercase;color:#7a7364;
+    border-bottom:1px solid var(--felt-800);
+  }
+  .movelist-wrap .movelist{
+    flex:1;min-height:0;overflow-y:auto;max-height:none;
+    padding:0;background:none;border:none;
+  }
+  .movelist-row{
+    display:grid;grid-template-columns:44px 1fr 1fr;
+    padding:7px 12px;font-family:'Fraunces',serif;font-size:.92rem;
+  }
+  .movelist-row:nth-child(even){background:var(--felt-900);}
+  .movelist-row.current{
+    background:var(--felt-800);
+    box-shadow:inset 2px 0 0 var(--brass);
+  }
+  .movelist-row.current .mv:first-of-type{color:var(--brass-bright);}
+  .movelist-row .num{color:#7a7364;}
+
+  .panel-empty{
+    display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:26px 18px;
+    font-size:.86rem;line-height:1.6;color:#7a7364;
+  }
+
+  /* Only stretch to the board's height where there is a column to fill. */
+  @media (min-width:881px){
+    .play-grid{align-items:stretch;}
+    .play-panel{
+      display:flex;flex-direction:column;gap:14px;min-height:0;
+      align-self:stretch;
+    }
+    .play-panel .movelist-wrap{flex:1;}
+    .play-panel .panel-empty{flex:1;}
+    .play-panel .btn-row{margin-top:0;}
+  }
+
 </style>
 </head>
 <body>
@@ -1975,13 +2053,15 @@
         <div class="board-frame">
           <div class="board" id="board"></div>
         </div>
-        <div class="board-footer">
-          <div class="cap-row" id="capWhite"></div>
-          <div class="cap-row" id="capBlack"></div>
-        </div>
+
       </div>
 
-      <div class="panel">
+      <div class="panel play-panel">
+        <div class="setup-summary" id="setupSummary" hidden>
+          <span id="setupSummaryText"></span>
+          <button type="button" class="setup-change" id="setupChangeBtn">Change</button>
+        </div>
+        <div id="setupBlock">
         <h2 class="setup-title">Match setup</h2>
         <div class="setup-fields">
         <div class="field">
@@ -2008,15 +2088,37 @@
         </div>
         </div>
         <button class="btn" id="newGameBtn">New game</button>
+        </div>
 
-        <div style="height:18px;"></div>
+        <div class="player-strips" id="playerStrips" hidden>
+          <div class="pstrip" id="stripOpp">
+            <span class="pstrip-disc" id="oppDisc"></span>
+            <span class="pstrip-name" id="oppName">Bot</span>
+            <span class="cap-row" id="capBlack"></span>
+            <span class="pstrip-diff" id="oppDiff"></span>
+          </div>
+          <div class="pstrip" id="stripYou">
+            <span class="pstrip-disc" id="youDisc"></span>
+            <span class="pstrip-name" id="youName">You</span>
+            <span class="cap-row" id="capWhite"></span>
+            <span class="pstrip-diff" id="youDiff"></span>
+          </div>
+        </div>
 
-        <h2>Game</h2>
         <div class="status-line" id="statusLine">Set up a match and start playing.</div>
-        <div class="movelist" id="moveList"></div>
-        <div class="btn-row">
-          <button class="btn secondary" id="resignBtn" disabled>Resign</button>
+
+        <div class="movelist-wrap" id="moveListWrap" hidden>
+          <div class="movelist-head"><span>#</span><span>White</span><span>Black</span></div>
+          <div class="movelist" id="moveList"></div>
+        </div>
+
+        <div class="panel-empty" id="panelEmpty">
+          Pick a strength and a colour, then start. Your moves will appear here.
+        </div>
+
+        <div class="btn-row" id="gameBtnRow" hidden>
           <button class="btn secondary" id="undoBtn" disabled>Undo</button>
+          <button class="btn secondary" id="resignBtn" disabled>Resign</button>
         </div>
       </div>
     </div>
@@ -2600,7 +2702,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17o · centred header lockup';
+const BUILD = '2026-09-17p · full-height play panel';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -3173,6 +3275,72 @@ function renderCaptures(){
   });
   document.getElementById('capWhite').textContent = capturedByWhite.join(' ');
   document.getElementById('capBlack').textContent = capturedByBlack.join(' ');
+  renderMaterial(history);
+}
+
+/* Running point difference. Kings are never captured so they're not counted,
+   and pawn promotions are ignored: this counts captured material only, which
+   is what the pieces beside each name represent. */
+const MATERIAL_VALUE = { p:1, n:3, b:3, r:5, q:9 };
+
+function materialBalance(history){
+  let white = 0, black = 0;
+  history.forEach(m => {
+    if (!m.captured) return;
+    const v = MATERIAL_VALUE[m.captured] || 0;
+    if (m.color === 'w') white += v; else black += v;
+  });
+  return white - black;   // positive = White is up
+}
+
+function renderMaterial(history){
+  const balance = materialBalance(history || game.history({ verbose: true }));
+  const youAreWhite = playerColor === 'w';
+  const yours = youAreWhite ? balance : -balance;
+  const setDiff = (id, value) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value > 0 ? '+' + value : value < 0 ? String(value) : '';
+    el.classList.toggle('up', value > 0);
+  };
+  setDiff('youDiff', yours);
+  setDiff('oppDiff', -yours);
+}
+
+/* The panel has two shapes: setting up, and playing. */
+function setPanelMode(playing){
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = !on;
+  };
+  show('setupSummary', playing);
+  show('playerStrips', playing);
+  show('moveListWrap', playing);
+  show('gameBtnRow', playing);
+  show('panelEmpty', !playing);
+  const block = document.getElementById('setupBlock');
+  if (block) block.hidden = playing;
+
+  if (!playing) return;
+
+  const elo = parseInt(document.getElementById('eloSelect').value, 10);
+  const eloText = elo === 9999 ? 'Stockfish' : String(elo);
+  const eloLabel = document.getElementById('eloSelect')
+    .selectedOptions[0].textContent.split('—')[1];
+  const youWhite = playerColor === 'w';
+  const sum = document.getElementById('setupSummaryText');
+  if (sum){
+    sum.textContent = eloText + (eloLabel ? ' ·' + eloLabel : '') +
+      ' · you play ' + (youWhite ? 'White' : 'Black');
+  }
+  const oppName = document.getElementById('oppName');
+  const youName = document.getElementById('youName');
+  if (oppName) oppName.textContent = 'Bot · ' + eloText;
+  if (youName) youName.textContent = 'You · ' + (youWhite ? 'White' : 'Black');
+  const oppDisc = document.getElementById('oppDisc');
+  const youDisc = document.getElementById('youDisc');
+  if (oppDisc) oppDisc.className = 'pstrip-disc ' + (youWhite ? 'b' : 'w');
+  if (youDisc) youDisc.className = 'pstrip-disc ' + (youWhite ? 'w' : 'b');
 }
 
 function renderMoveList(){
@@ -3183,7 +3351,8 @@ function renderMoveList(){
     const num = i / 2 + 1;
     const w = history[i] || '';
     const b = history[i + 1] || '';
-    html += `<div class="movelist-row"><span class="num">${num}.</span><span class="mv">${w}</span><span class="mv">${b}</span></div>`;
+    const isLast = i + 2 >= history.length;
+    html += `<div class="movelist-row${isLast ? ' current' : ''}"><span class="num">${num}</span><span class="mv">${w}</span><span class="mv">${b || '…'}</span></div>`;
   }
   list.innerHTML = html;
   list.scrollTop = list.scrollHeight;
@@ -3336,6 +3505,11 @@ function checkGameOver(){
   }
   document.getElementById('resignBtn').disabled = true;
   document.getElementById('undoBtn').disabled = true;
+  setPanelMode(false);
+  const _wrap = document.getElementById('moveListWrap');
+  if (_wrap) _wrap.hidden = false;
+  const _empty = document.getElementById('panelEmpty');
+  if (_empty) _empty.hidden = true;
   runAnalysis(resultText);
   return true;
 }
@@ -3351,6 +3525,7 @@ document.getElementById('newGameBtn').addEventListener('click', () => {
   lastMove = null;
   evalTrace = [];
   gameActive = true;
+  setPanelMode(true);
   botStyle = STYLE_KEYS[Math.floor(Math.random() * STYLE_KEYS.length)];
   lastBookOpening = null;
   document.getElementById('resignBtn').disabled = false;
@@ -3382,6 +3557,11 @@ document.getElementById('resignBtn').addEventListener('click', () => {
   setStatus(`${loser} resigns.` + (sName ? ' The bot was playing ' + sName + '.' : ''), true);
   document.getElementById('resignBtn').disabled = true;
   document.getElementById('undoBtn').disabled = true;
+  setPanelMode(false);
+  const _wrap = document.getElementById('moveListWrap');
+  if (_wrap) _wrap.hidden = false;
+  const _empty = document.getElementById('panelEmpty');
+  if (_empty) _empty.hidden = true;
   runAnalysis(`${loser} (you) resigned.`);
 });
 
@@ -6815,6 +6995,17 @@ document.getElementById('muteBtn').addEventListener('click', () => {
   refreshSoundUI();
 });
 
+const setupChangeBtn = document.getElementById('setupChangeBtn');
+if (setupChangeBtn){
+  setupChangeBtn.addEventListener('click', () => {
+    // Reveal the controls again; the running game is untouched until New game.
+    const block = document.getElementById('setupBlock');
+    const summary = document.getElementById('setupSummary');
+    if (block) block.hidden = false;
+    if (summary) summary.hidden = true;
+  });
+}
+
 document.getElementById('volSlider').addEventListener('input', (e) => {
   sound.unlock();
   sound.setVolume(parseInt(e.target.value, 10) / 100);
@@ -7890,6 +8081,44 @@ async function runSelfTests(){
         return 'tab row is off centre by ' + Math.round(Math.abs(tabsMid - headMid)) + 'px';
     }
     return true;
+  });
+
+  check('material balance counts captures from both sides', () => {
+    const cases = [
+      [[], 0],
+      [[{ color:'w', captured:'p' }], 1],
+      [[{ color:'b', captured:'q' }], -9],
+      [[{ color:'w', captured:'r' }, { color:'b', captured:'n' }], 2],
+      [[{ color:'w', captured:'p' }, { color:'b', captured:'p' }], 0],
+      [[{ color:'w', san:'Nf3' }], 0]                    // no capture, no points
+    ];
+    const bad = cases
+      .map(([hist, want]) => [want, materialBalance(hist)])
+      .filter(([want, got]) => want !== got)
+      .map(([want, got]) => 'wanted ' + want + ', got ' + got);
+    return bad.length === 0 ? true : bad.join('; ');
+  });
+
+  check('panel switches between setup and playing shapes', () => {
+    const ids = ['setupSummary','playerStrips','moveListWrap','gameBtnRow','panelEmpty','setupBlock'];
+    const missing = ids.filter(id => !document.getElementById(id));
+    if (missing.length) return 'missing: ' + missing.join(', ');
+
+    const wasActive = gameActive;
+    try{
+      setPanelMode(true);
+      if (!document.getElementById('setupBlock').hidden === false) { /* expanded is fine */ }
+      if (document.getElementById('playerStrips').hidden) return 'strips hidden while playing';
+      if (!document.getElementById('panelEmpty').hidden) return 'placeholder shown while playing';
+      if (document.getElementById('setupSummary').hidden) return 'summary hidden while playing';
+
+      setPanelMode(false);
+      if (!document.getElementById('playerStrips').hidden) return 'strips shown before a game';
+      if (document.getElementById('setupBlock').hidden) return 'setup collapsed before a game';
+      return true;
+    } finally {
+      setPanelMode(wasActive);
+    }
   });
 
   check('no two top-level functions share a name', () => {
