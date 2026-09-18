@@ -51,6 +51,8 @@
     --outcome-win:#5c9678;
     --outcome-loss:#b1543a;
     --outcome-draw:#0b0a08;
+    /* Vertical space taken by header, tabs and padding around the board. */
+    --board-reserve:290px;
   }
 
   *{box-sizing:border-box;}
@@ -1144,8 +1146,25 @@
     .movelist{max-height:300px;}
   }
   @media (min-width:1100px){
-    /* Keep the board from becoming the only thing on screen */
-    .board-frame{max-width:720px;}
+    /* Size the board by what actually fits on screen rather than a flat pixel
+       cap. It's square, so the limit is whichever is smaller: the width of its
+       column, or the viewport height minus everything above and below it.
+       --board-reserve is that chrome allowance, and Modern needs less of it
+       because its header is one line instead of a title block. */
+    .board-frame{
+      /* Grow with the viewport height, but never shrink below a sensible
+         desktop size: inside an iframe or preview pane 100vh can resolve to
+         a few hundred pixels, and a height-only cap made the board tiny.
+
+         width:100% + margin-inline:auto — NOT justify-self:center. Centring a
+         grid item with justify-self switches it from stretch to shrink-to-fit,
+         and since the board inside is width:100% the frame then collapses to
+         the intrinsic width of the pieces (~335px) and max-width never
+         applies. Auto margins centre it while keeping it stretched. */
+      width:100%;
+      max-width:min(100%, max(720px, calc(100vh - var(--board-reserve))));
+      margin-inline:auto;
+    }
   }
 
   /* ---- 1440p and wider: keep scaling instead of stranding the UI
@@ -1153,7 +1172,7 @@
   @media (min-width:1800px){
     html{font-size:17.5px;}
     .wrap{max-width:1720px;padding:36px 32px 70px;}
-    .board-frame{max-width:860px;padding:16px;}
+    .board-frame{padding:16px;}
     .play-grid{grid-template-columns:minmax(280px,1fr) 420px;gap:46px;}
     header h1{font-size:2.7rem;}
     header p{font-size:1.08rem;}
@@ -1181,14 +1200,13 @@
   @media (min-width:2300px){
     html{font-size:19px;}
     .wrap{max-width:2040px;}
-    .board-frame{max-width:1000px;}
-    .play-grid{grid-template-columns:minmax(280px,1fr) 480px;gap:56px;}
+    .play-grid{grid-template-columns:minmax(280px,1fr) 460px;gap:48px;}
     header h1{font-size:3rem;}
     nav.tabs button{font-size:1.3rem;padding:15px 30px;}
     .practice-modal{max-width:1840px;}
     .practice-body{grid-template-columns:minmax(320px,1fr) minmax(420px,600px);}
     .practice-head h3{font-size:1.9rem;}
-    .replay-grid{grid-template-columns:minmax(300px,800px) 1fr;}
+    .replay-grid{grid-template-columns:minmax(300px,min(800px, max(560px, calc(100vh - 300px)))) 1fr;}
     .movelist{max-height:460px;}
   }
 
@@ -1623,6 +1641,7 @@
     --outcome-win:#6f9c80;
     --outcome-loss:#cc8d72;
     --outcome-draw:#000000;
+    --board-reserve:210px;
   }
   /* Flat ground: the two radial washes read as dated on a phone. */
   html.modern body{background:#14130f;}
@@ -2555,7 +2574,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17k · header scales on desktop';
+const BUILD = '2026-09-17n · board collapse fix';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -7793,6 +7812,33 @@ async function runSelfTests(){
     });
     if (missing) return missing + ' row(s) without the two-line layout';
     if (visiblePills) return visiblePills + ' row(s) still showing the old pills';
+    return true;
+  });
+
+  check('the board is never taller than the viewport', () => {
+    const frame = document.querySelector('#view-play .board-frame');
+    if (!frame) return true;                       // Play tab not rendered
+    if (document.getElementById('view-play') &&
+        !document.getElementById('view-play').classList.contains('active')) return true;
+    const r = frame.getBoundingClientRect();
+    if (r.width === 0) return true;                // hidden
+    if (Math.abs(r.width - r.height) > 40)
+      return 'board is not square: ' + Math.round(r.width) + 'x' + Math.round(r.height);
+    // Must never overflow its column, and must never collapse to a stub —
+    // the two ways the min()/max() sizing could go wrong.
+    const col = frame.parentElement;
+    if (col && r.width > col.getBoundingClientRect().width + 2)
+      return 'board overflows its column';
+    if (r.width < 240)
+      return 'board collapsed to ' + Math.round(r.width) + 'px';
+    // On a wide column the board must actually use the room. This is what
+    // justify-self:center silently broke — it stayed square and inside its
+    // column, just tiny.
+    if (col){
+      const colW = col.getBoundingClientRect().width;
+      if (colW >= 800 && r.width < 700)
+        return 'board is only ' + Math.round(r.width) + 'px in a ' + Math.round(colW) + 'px column';
+    }
     return true;
   });
 
