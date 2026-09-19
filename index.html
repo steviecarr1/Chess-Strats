@@ -2220,6 +2220,29 @@
     .replay-grid .eval-bar{width:12px;}
   }
 
+
+  /* ---- Import panel ---- */
+  .import-panel{margin-bottom:18px;}
+  .import-help{font-size:.88rem;color:var(--ivory-dim);line-height:1.6;margin:0 0 14px;}
+  .import-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+  .import-row .btn{min-height:44px;flex-shrink:0;}
+  .import-panel textarea{
+    width:100%;min-height:110px;resize:vertical;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:.8rem;line-height:1.5;
+  }
+  .import-status{
+    margin-top:10px;font-size:.86rem;color:var(--ivory-dim);min-height:1.2em;
+  }
+  .import-status.ok{color:var(--outcome-win);}
+  .import-status.warn{color:var(--brass-bright);}
+  html.modern .import-panel textarea,
+  html.modern .import-panel input[type="text"],
+  html.modern .import-panel input[type="month"]{
+    background:var(--felt-800);border:none;border-radius:10px;
+    color:var(--ivory);padding:11px 12px;
+  }
+
 </style>
 </head>
 <body>
@@ -2442,6 +2465,35 @@
 
   <!-- HISTORY VIEW -->
   <section class="view" id="view-history">
+    <div class="panel import-panel">
+      <h2>Import games</h2>
+      <p class="import-help">
+        Paste PGN from chess.com or Lichess, or fetch a month straight from
+        chess.com. Imported games get the same engine review, puzzles and
+        progress tracking as games played here.
+      </p>
+      <div class="field">
+        <label for="importUser">Your chess.com / Lichess username</label>
+        <input id="importUser" type="text" autocomplete="username"
+               placeholder="so we know which side you played">
+      </div>
+      <div class="import-row">
+        <div class="field" style="flex:1;min-width:0;">
+          <label for="importMonth">Fetch from chess.com</label>
+          <input id="importMonth" type="month">
+        </div>
+        <button class="btn secondary" id="importFetchBtn" type="button">Fetch month</button>
+      </div>
+      <div class="field">
+        <label for="importPgn">Or paste PGN</label>
+        <textarea id="importPgn" rows="5"
+                  placeholder="[Event &quot;Live Chess&quot;] ..."></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="importPgnBtn" type="button">Import PGN</button>
+      </div>
+      <div class="import-status" id="importStatus"></div>
+    </div>
     <div id="historyContent">
       <div class="analysis-empty">No games saved yet. Finish a game and it'll show up here.</div>
     </div>
@@ -2921,7 +2973,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-18b · board arrows and side eval bar';
+const BUILD = '2026-09-18c · import games';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -4554,6 +4606,137 @@ async function loadAllPuzzles(){
 }
 
 /* ---------------- History view ---------------- */
+
+/* ============================================================
+   IMPORT GAMES
+   Bring in real games from chess.com or Lichess. Everything the app does
+   with its own games — engine review, puzzle generation, progress — works
+   on imported ones, because a saved game is really just a PGN plus a bit
+   of metadata.
+   ============================================================ */
+
+/* A PGN file holds many games; each starts a fresh [Event] tag block. */
+function splitPgnGames(text){
+  const cleaned = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!cleaned) return [];
+  const parts = cleaned.split(/\n\s*\n(?=\[Event )/);
+  return parts.map(p => p.trim()).filter(Boolean);
+}
+
+/* Stable id from the PGN itself, so importing the same file twice doesn't
+   create duplicates. */
+function pgnFingerprint(pgn){
+  let n = 0;
+  const s = pgn.replace(/\s+/g, ' ');
+  for (let i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) & 0x7fffffff;
+  return 'imp-' + n.toString(36) + '-' + s.length.toString(36);
+}
+
+function headerDate(hdr){
+  const d = hdr.UTCDate || hdr.Date || '';
+  const t = hdr.UTCTime || '00:00:00';
+  const m = d.match(/^(\d{4})[.\-](\d{2})[.\-](\d{2})$/);
+  if (!m) return Date.now();
+  const parsed = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${t}Z`);
+  return isNaN(parsed) ? Date.now() : parsed;
+}
+
+/* Turn one PGN into a game record in the app's own shape. */
+function recordFromPgn(pgn, username){
+  const probe = new Chess();
+  let ok = false;
+  try{ ok = probe.load_pgn(pgn, { sloppy: true }); } catch(e){ ok = false; }
+  if (!ok || probe.history().length === 0) return null;
+
+  const hdr = probe.header() || {};
+  const user = String(username || '').trim().toLowerCase();
+  const white = String(hdr.White || '').toLowerCase();
+  const black = String(hdr.Black || '').toLowerCase();
+
+  let playerColorCode = 'w';
+  if (user && black === user) playerColorCode = 'b';
+  else if (user && white === user) playerColorCode = 'w';
+  else if (user && black.indexOf(user) !== -1 && white.indexOf(user) === -1) playerColorCode = 'b';
+
+  const result = hdr.Result || '*';
+  let outcome = 'unknown';
+  if (result === '1/2-1/2') outcome = 'draw';
+  else if (result === '1-0') outcome = playerColorCode === 'w' ? 'win' : 'loss';
+  else if (result === '0-1') outcome = playerColorCode === 'b' ? 'win' : 'loss';
+
+  const oppName = playerColorCode === 'w' ? (hdr.Black || 'Opponent') : (hdr.White || 'Opponent');
+  const oppElo = parseInt(playerColorCode === 'w' ? hdr.BlackElo : hdr.WhiteElo, 10);
+
+  const winnerWord = result === '1-0' ? 'White wins' : result === '0-1' ? 'Black wins' : null;
+  const termination = hdr.Termination || '';
+  let resultText;
+  if (outcome === 'draw') resultText = 'Draw.';
+  else if (winnerWord) resultText = (/resign/i.test(termination) ? 'Resignation — ' : 'Checkmate — ') + winnerWord + '.';
+  else resultText = 'Result unknown.';
+
+  return {
+    id: pgnFingerprint(pgn),
+    date: headerDate(hdr),
+    pgn: probe.pgn(),
+    playerColor: playerColorCode,
+    outcome,
+    botElo: isNaN(oppElo) ? 0 : oppElo,
+    botStyleName: null,
+    botStyle: null,
+    opponentName: oppName,
+    source: /chess\.com/i.test(hdr.Site || '') ? 'chess.com'
+          : /lichess/i.test(hdr.Site || '') ? 'lichess' : 'import',
+    resultText,
+    imported: true
+  };
+}
+
+async function importPgnText(text, username){
+  const games = splitPgnGames(text);
+  if (!games.length) return { added: 0, skipped: 0, failed: 0, total: 0 };
+
+  let added = 0, skipped = 0, failed = 0;
+  for (const pgn of games){
+    const rec = recordFromPgn(pgn, username);
+    if (!rec){ failed++; continue; }
+    try{
+      const existing = await store.get('games:' + rec.id);
+      if (existing){ skipped++; continue; }
+    } catch(e){ /* not found is the normal path */ }
+    await saveGameRecord(rec);
+    added++;
+  }
+  return { added, skipped, failed, total: games.length };
+}
+
+/* chess.com publishes monthly archives as PGN with no key required. */
+async function fetchChessComMonth(username, yyyymm){
+  const user = String(username || '').trim();
+  if (!user) throw new Error('Enter your chess.com username first.');
+  const m = String(yyyymm || '').match(/^(\d{4})-(\d{2})$/);
+  if (!m) throw new Error('Pick a month first.');
+  const url = `https://api.chess.com/pub/player/${encodeURIComponent(user.toLowerCase())}/games/${m[1]}/${m[2]}/pgn`;
+  const res = await fetch(url, { headers: { 'Accept': 'application/x-chess-pgn' } });
+  if (res.status === 404) throw new Error('No games found for that month, or the username is wrong.');
+  if (!res.ok) throw new Error('chess.com returned ' + res.status + '.');
+  return res.text();
+}
+
+function setImportStatus(msg, tone){
+  const el = document.getElementById('importStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'import-status' + (tone ? ' ' + tone : '');
+}
+
+function describeImport(r){
+  const bits = [];
+  if (r.added) bits.push(r.added + ' game' + (r.added === 1 ? '' : 's') + ' imported');
+  if (r.skipped) bits.push(r.skipped + ' already here');
+  if (r.failed) bits.push(r.failed + " couldn't be read");
+  if (!bits.length) return 'Nothing to import.';
+  return bits.join(' · ') + '.';
+}
 
 async function renderHistoryView(){
   const container = document.getElementById('historyContent');
@@ -7463,6 +7646,58 @@ document.getElementById('muteBtn').addEventListener('click', () => {
   refreshSoundUI();
 });
 
+/* ---- Import controls ---- */
+const importPgnBtn = document.getElementById('importPgnBtn');
+if (importPgnBtn){
+  importPgnBtn.addEventListener('click', async () => {
+    const text = document.getElementById('importPgn').value;
+    const user = document.getElementById('importUser').value;
+    if (!text.trim()){ setImportStatus('Paste a PGN first.', 'warn'); return; }
+    importPgnBtn.disabled = true;
+    setImportStatus('Reading…');
+    try{
+      const r = await importPgnText(text, user);
+      setImportStatus(describeImport(r), r.added ? 'ok' : 'warn');
+      if (r.added){
+        document.getElementById('importPgn').value = '';
+        await renderHistoryView();
+        const av = document.getElementById('view-analysis');
+        if (av && av.classList.contains('active')) await renderAnalysisView();
+      }
+    } catch(e){
+      console.error(e);
+      setImportStatus('Import failed: ' + e.message, 'warn');
+    } finally { importPgnBtn.disabled = false; }
+  });
+}
+
+const importFetchBtn = document.getElementById('importFetchBtn');
+if (importFetchBtn){
+  importFetchBtn.addEventListener('click', async () => {
+    const user = document.getElementById('importUser').value;
+    const month = document.getElementById('importMonth').value;
+    importFetchBtn.disabled = true;
+    setImportStatus('Fetching from chess.com…');
+    try{
+      const pgn = await fetchChessComMonth(user, month);
+      const r = await importPgnText(pgn, user);
+      setImportStatus(describeImport(r), r.added ? 'ok' : 'warn');
+      if (r.added){
+        await renderHistoryView();
+        const av = document.getElementById('view-analysis');
+        if (av && av.classList.contains('active')) await renderAnalysisView();
+      }
+    } catch(e){
+      /* A blocked cross-origin request looks like a generic network failure,
+         so say what to do instead of showing a raw error. */
+      const msg = /Failed to fetch|NetworkError/i.test(e.message)
+        ? 'Could not reach chess.com from the browser. Download your PGN from chess.com and paste it below instead.'
+        : e.message;
+      setImportStatus(msg, 'warn');
+    } finally { importFetchBtn.disabled = false; }
+  });
+}
+
 const evalBarToggle = document.getElementById('evalBarToggle');
 if (evalBarToggle){
   evalBarToggle.addEventListener('change', (e) => setEvalBarPref(e.target.value === 'on'));
@@ -8735,6 +8970,57 @@ async function runSelfTests(){
       if (host.querySelector('.board-arrows')) return 'arrows not cleared';
       return true;
     } finally { host.remove(); }
+  });
+
+  check('PGN import reads games, sides and results correctly', () => {
+    const pgn = [
+      '[Event "Live Chess"]',
+      '[Site "Chess.com"]',
+      '[UTCDate "2026.03.14"]',
+      '[UTCTime "18:20:00"]',
+      '[White "steviecarr1"]',
+      '[Black "someopponent"]',
+      '[Result "0-1"]',
+      '[WhiteElo "980"]',
+      '[BlackElo "1042"]',
+      '[Termination "someopponent won by resignation"]',
+      '',
+      '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 0-1'
+    ].join('\n');
+
+    const rec = recordFromPgn(pgn, 'steviecarr1');
+    if (!rec) return 'failed to parse a valid PGN';
+    if (rec.playerColor !== 'w') return 'wrong side: ' + rec.playerColor;
+    if (rec.outcome !== 'loss') return 'wrong outcome: ' + rec.outcome;
+    if (rec.botElo !== 1042) return "opponent rating wrong: " + rec.botElo;
+    if (!/resignation/i.test(rec.resultText)) return 'result text: ' + rec.resultText;
+    if (movesFromPgn(rec.pgn).length !== 6) return 'moves lost in the round trip';
+
+    // Same file, other player: the side and outcome must both flip.
+    const asBlack = recordFromPgn(pgn, 'someopponent');
+    if (asBlack.playerColor !== 'b' || asBlack.outcome !== 'win')
+      return 'did not flip for the other player';
+
+    // Same PGN twice produces the same id, so re-importing can't duplicate.
+    if (recordFromPgn(pgn, 'steviecarr1').id !== rec.id) return 'id is not stable';
+
+    // Junk must be rejected rather than stored as an empty game.
+    if (recordFromPgn('not a pgn at all', 'x') !== null) return 'accepted junk';
+    return true;
+  });
+
+  check('multi-game PGN files split into separate games', () => {
+    const one = '[Event "A"]\n[White "me"]\n[Black "you"]\n[Result "1-0"]\n\n1. e4 e5 1-0';
+    const two = '[Event "B"]\n[White "you"]\n[Black "me"]\n[Result "0-1"]\n\n1. d4 d5 0-1';
+    const games = splitPgnGames(one + '\n\n' + two);
+    if (games.length !== 2) return 'split gave ' + games.length + ' games, expected 2';
+    const recs = games.map(g => recordFromPgn(g, 'me')).filter(Boolean);
+    if (recs.length !== 2) return 'only ' + recs.length + ' parsed';
+    if (recs[0].id === recs[1].id) return 'different games share an id';
+    if (recs[0].outcome !== 'win' || recs[1].outcome !== 'win')
+      return 'outcomes wrong: ' + recs.map(r => r.outcome).join(',');
+    if (splitPgnGames('   ').length !== 0) return 'empty input should give no games';
+    return true;
   });
 
   check('no two top-level functions share a name', () => {
