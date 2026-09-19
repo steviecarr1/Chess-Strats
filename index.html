@@ -2243,6 +2243,57 @@
     color:var(--ivory);padding:11px 12px;
   }
 
+
+  /* ---- Analysis sub-tabs ---- */
+  .subtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .subtab{
+    background:var(--felt-900);
+    border:1px solid var(--felt-700);
+    border-radius:20px;
+    color:var(--ivory-dim);
+    font-family:'Inter',sans-serif;
+    font-size:.84rem;
+    padding:8px 16px;
+    min-height:38px;
+    cursor:pointer;
+  }
+  .subtab:hover{color:var(--ivory);}
+  .subtab.active{
+    background:var(--brass);
+    border-color:var(--brass);
+    color:#1a1710;
+    font-weight:600;
+  }
+  html.modern .subtab{border:none;background:var(--felt-800);}
+  html.modern .subtab.active{background:var(--brass);color:#1a1710;}
+
+  /* ---- Collapsible import panel ---- */
+  .import-panel summary{
+    cursor:pointer;
+    font-family:'Fraunces',serif;
+    font-size:1.1rem;
+    color:var(--brass-bright);
+    display:flex;
+    align-items:center;
+    gap:8px;
+    list-style:none;
+  }
+  .import-panel summary::-webkit-details-marker{display:none;}
+  .import-panel summary::after{
+    content:'';
+    margin-left:auto;
+    width:7px;height:7px;
+    border-right:2px solid var(--ivory-dim);
+    border-bottom:2px solid var(--ivory-dim);
+    transform:rotate(45deg);
+    transition:transform .2s ease;
+  }
+  .import-panel[open] summary::after{transform:rotate(225deg);}
+  .import-inner{margin-top:16px;}
+  @media (prefers-reduced-motion:reduce){
+    .import-panel summary::after{transition:none;}
+  }
+
 </style>
 </head>
 <body>
@@ -2357,6 +2408,10 @@
 
   <!-- ANALYSIS VIEW -->
   <section class="view" id="view-analysis">
+    <div class="subtabs" id="analysisSubtabs">
+      <button type="button" class="subtab active" data-src="bot">Against the bot</button>
+      <button type="button" class="subtab" data-src="imported">Imported games</button>
+    </div>
     <div id="analysisContent">
       <div class="analysis-empty">Finish or resign a game to unlock its analysis.</div>
     </div>
@@ -2465,8 +2520,17 @@
 
   <!-- HISTORY VIEW -->
   <section class="view" id="view-history">
-    <div class="panel import-panel">
-      <h2>Import games</h2>
+    <div id="historyContent">
+      <div class="analysis-empty">No games saved yet. Finish a game and it'll show up here.</div>
+    </div>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section class="view" id="view-settings">
+    <div style="max-width:620px;">
+      <details class="panel import-panel" id="importDetails">
+        <summary>Import games</summary>
+        <div class="import-inner">
       <p class="import-help">
         Paste PGN from chess.com or Lichess, or fetch a month straight from
         chess.com. Imported games get the same engine review, puzzles and
@@ -2493,15 +2557,9 @@
         <button class="btn" id="importPgnBtn" type="button">Import PGN</button>
       </div>
       <div class="import-status" id="importStatus"></div>
-    </div>
-    <div id="historyContent">
-      <div class="analysis-empty">No games saved yet. Finish a game and it'll show up here.</div>
-    </div>
-  </section>
+        </div>
+      </details>
 
-  <!-- SETTINGS VIEW -->
-  <section class="view" id="view-settings">
-    <div style="max-width:620px;">
       <div class="panel" style="margin-bottom:16px;">
         <h2>This build</h2>
         <p style="font-size:.88rem;color:var(--ivory-dim);margin:0;">
@@ -2973,7 +3031,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-18c · import games';
+const BUILD = '2026-09-18d · imported games separated';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -5487,8 +5545,13 @@ function rowTimeShort(ts){
 function mobileRowHtml(g){
   const outcome = resolveOutcome(g);
   const disc = g.playerColor === 'w' ? 'w' : 'b';
-  const opp = g.botElo === 9999 ? 'Stockfish' : String(g.botElo);
-  const style = g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : '';
+  /* A real opponent has a name; a bot has a rating and a personality. */
+  const opp = g.imported
+    ? (g.opponentName || 'Opponent')
+    : (g.botElo === 9999 ? 'Stockfish' : String(g.botElo));
+  const style = g.imported
+    ? (g.botElo ? ' · ' + g.botElo : '')
+    : (g.botStyleName ? ' · ' + escapeHtml(g.botStyleName) : '');
   const short = rowResultShort(g);
   return `<span class="m-row">
       <span class="m-top">
@@ -5627,11 +5690,36 @@ function showUndoBar(container, rec, onRestore){
   });
 }
 
+
+/* Counts on the sub-tabs, so an empty list is obviously empty rather than
+   looking broken. */
+function updateAnalysisSubtabs(allGames){
+  const bar = document.getElementById('analysisSubtabs');
+  if (!bar) return;
+  const counts = { bot: 0, imported: 0 };
+  (allGames || []).forEach(g => { g.imported ? counts.imported++ : counts.bot++; });
+  bar.querySelectorAll('.subtab').forEach(btn => {
+    const src = btn.dataset.src;
+    const base = src === 'imported' ? 'Imported games' : 'Against the bot';
+    btn.textContent = base + (counts[src] ? ' (' + counts[src] + ')' : '');
+    btn.classList.toggle('active', analysisSource === src);
+  });
+}
+let analysisSource = 'bot';   // 'bot' | 'imported'
+
 async function renderAnalysisView(expandId){
   const view = document.getElementById('analysisContent');
-  const games = await loadAllGames();
+  const all = await loadAllGames();
+
+  /* Imported games are kept in their own list so real opponents don't get
+     mixed in with bot practice — the two mean different things. */
+  const games = all.filter(g => analysisSource === 'imported' ? !!g.imported : !g.imported);
+  updateAnalysisSubtabs(all);
+
   if (games.length === 0){
-    view.innerHTML = '<div class="analysis-empty">Finish or resign a game to unlock its analysis.</div>';
+    view.innerHTML = analysisSource === 'imported'
+      ? '<div class="analysis-empty">No imported games yet. Bring in your chess.com or Lichess games from Settings → Import games.</div>'
+      : '<div class="analysis-empty">Finish or resign a game to unlock its analysis.</div>';
     return;
   }
 
@@ -5794,7 +5882,9 @@ function buildReplayPanel(rec){
     </div>` : '';
 
   const headerHtml = `<div class="game-header-line">${outcomeBadge(rec)}
-      <span class="acc-vs">vs ${rec.botElo === 9999 ? 'Stockfish' : rec.botElo + ' ELO'}</span></div>`;
+      <span class="acc-vs">vs ${rec.imported
+        ? escapeHtml(rec.opponentName || 'Opponent') + (rec.botElo ? ' (' + rec.botElo + ')' : '')
+        : (rec.botElo === 9999 ? 'Stockfish' : rec.botElo + ' ELO')}</span></div>`;
 
   const styleHtml = rec.botStyleName ? `
     <div class="style-note">
@@ -7647,6 +7737,16 @@ document.getElementById('muteBtn').addEventListener('click', () => {
 });
 
 /* ---- Import controls ---- */
+const analysisSubtabs = document.getElementById('analysisSubtabs');
+if (analysisSubtabs){
+  analysisSubtabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.subtab');
+    if (!btn || btn.dataset.src === analysisSource) return;
+    analysisSource = btn.dataset.src;
+    renderAnalysisView();
+  });
+}
+
 const importPgnBtn = document.getElementById('importPgnBtn');
 if (importPgnBtn){
   importPgnBtn.addEventListener('click', async () => {
@@ -9021,6 +9121,64 @@ async function runSelfTests(){
       return 'outcomes wrong: ' + recs.map(r => r.outcome).join(',');
     if (splitPgnGames('   ').length !== 0) return 'empty input should give no games';
     return true;
+  });
+
+  check('imported and bot games are listed separately', () => {
+    const bar = document.getElementById('analysisSubtabs');
+    if (!bar) return 'sub-tab bar missing';
+    const srcs = Array.from(bar.querySelectorAll('.subtab')).map(b => b.dataset.src).sort();
+    if (srcs.join(',') !== 'bot,imported') return 'unexpected sub-tabs: ' + srcs.join(',');
+
+    const sample = [
+      { id:'a', date:1, imported:true },
+      { id:'b', date:2 },
+      { id:'c', date:3, imported:true }
+    ];
+    const was = analysisSource;
+    try{
+      analysisSource = 'bot';
+      updateAnalysisSubtabs(sample);
+      const botBtn = bar.querySelector('[data-src="bot"]');
+      const impBtn = bar.querySelector('[data-src="imported"]');
+      if (!/\(1\)/.test(botBtn.textContent)) return 'bot count wrong: ' + botBtn.textContent;
+      if (!/\(2\)/.test(impBtn.textContent)) return 'imported count wrong: ' + impBtn.textContent;
+      if (!botBtn.classList.contains('active')) return 'active tab not marked';
+
+      // The filter the view uses must split them cleanly.
+      const bots = sample.filter(g => !g.imported);
+      const imps = sample.filter(g => !!g.imported);
+      if (bots.length !== 1 || imps.length !== 2) return 'filter split is wrong';
+      return true;
+    } finally {
+      analysisSource = was;
+      updateAnalysisSubtabs(sample);
+    }
+  });
+
+  check('imported rows name the opponent instead of a bot rating', () => {
+    const imported = mobileRowHtml({
+      id:'x', date:Date.now(), playerColor:'w', imported:true,
+      opponentName:'Jeooo21', botElo:1042, resultText:'Draw.'
+    });
+    if (imported.indexOf('Jeooo21') === -1) return 'opponent name missing';
+    if (/Stockfish/.test(imported)) return 'showed a bot label on an imported game';
+
+    const bot = mobileRowHtml({
+      id:'y', date:Date.now(), playerColor:'w', botElo:800,
+      botStyleName:'Aggressive', resultText:'Draw.'
+    });
+    if (bot.indexOf('Aggressive') === -1) return 'bot personality missing';
+    return true;
+  });
+
+  check('the import panel lives in Settings and starts closed', () => {
+    const panel = document.getElementById('importDetails');
+    if (!panel) return 'import panel not found';
+    if (!panel.closest('#view-settings')) return 'import panel is not in Settings';
+    if (panel.open) return 'import panel should start collapsed';
+    const ids = ['importUser','importMonth','importPgn','importPgnBtn','importFetchBtn','importStatus'];
+    const missing = ids.filter(id => !panel.querySelector('#' + id));
+    return missing.length === 0 ? true : 'controls lost in the move: ' + missing.join(', ');
   });
 
   check('no two top-level functions share a name', () => {
