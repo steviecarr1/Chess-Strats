@@ -2149,6 +2149,86 @@
     .eval-fill{transition:none;}
   }
 
+
+  /* ===== Guided review: eval bar, coach line, square badges ===== */
+  .review-eval{
+    position:relative;
+    height:26px;
+    border-radius:7px;
+    overflow:hidden;
+    background:var(--felt-800);
+    margin-bottom:10px;
+  }
+  .review-eval-fill{
+    position:absolute;left:0;top:0;bottom:0;
+    width:50%;
+    background:#e6d5b8;
+    transition:width .3s ease;
+  }
+  .review-eval-num{
+    position:absolute;left:9px;top:50%;transform:translateY(-50%);
+    font-size:.74rem;font-weight:700;color:var(--felt-950);
+  }
+  .review-eval-num.dark-side{left:auto;right:9px;color:var(--ivory);}
+
+  .coach-bubble{
+    display:flex;align-items:flex-start;gap:10px;
+    background:var(--felt-900);
+    border:1px solid var(--felt-700);
+    border-radius:12px;
+    padding:11px 13px;
+    margin-bottom:12px;
+  }
+  .coach-badge{
+    width:26px;height:26px;border-radius:50%;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    font-size:.78rem;font-weight:700;
+    background:var(--felt-700);color:var(--ivory);
+  }
+  .coach-body{min-width:0;}
+  .coach-head{font-size:.94rem;color:var(--ivory);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .coach-text{font-size:.86rem;line-height:1.55;color:var(--ivory-dim);margin-top:3px;}
+  .coach-eval{
+    font-size:.74rem;font-weight:700;
+    background:var(--felt-800);color:var(--ivory);
+    border-radius:5px;padding:2px 7px;
+  }
+  .coach-bubble.tone-book    .coach-badge{background:#8a6a3f;color:#fff;}
+  .coach-bubble.tone-best    .coach-badge{background:var(--outcome-win);color:#fff;}
+  .coach-bubble.tone-good    .coach-badge{background:var(--outcome-win);color:#fff;}
+  .coach-bubble.tone-inaccuracy .coach-badge{background:#6f93a8;color:#fff;}
+  .coach-bubble.tone-mistake .coach-badge{background:#c98a3c;color:#fff;}
+  .coach-bubble.tone-blunder .coach-badge{background:var(--outcome-loss);color:#fff;}
+  .coach-bubble.tone-blunder{border-color:var(--outcome-loss);}
+  .coach-bubble.tone-mistake{border-color:#c98a3c;}
+
+  /* The same badge, on the square the move was played to. */
+  .sq[class*="cls-"]::after{
+    content:'';
+    position:absolute;
+    top:4%;right:4%;
+    width:30%;height:30%;
+    max-width:22px;max-height:22px;
+    border-radius:50%;
+    border:2px solid var(--felt-950);
+    z-index:3;
+  }
+  .sq.cls-book::after{background:#8a6a3f;}
+  .sq.cls-best::after,
+  .sq.cls-good::after{background:var(--outcome-win);}
+  .sq.cls-inaccuracy::after{background:#6f93a8;}
+  .sq.cls-mistake::after{background:#c98a3c;}
+  .sq.cls-blunder::after{background:var(--outcome-loss);}
+
+  @media (max-width:700px){
+    .review-eval{height:22px;}
+    .coach-head{font-size:.9rem;}
+    .coach-text{font-size:.84rem;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .review-eval-fill{transition:none;}
+  }
+
 </style>
 </head>
 <body>
@@ -2850,7 +2930,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-17u · board width fix';
+const BUILD = '2026-09-18a · guided review';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -5024,11 +5104,74 @@ document.getElementById('puzzleNextBtn').addEventListener('click', () => {
    REPLAY BOARD — read-only board used by the Analysis tab
    ============================================================ */
 
-function renderReplayBoard(container, chessObj, flipped, highlight){
+function renderReplayBoard(container, chessObj, flipped, highlight, classMark){
   renderChessBoard(container, chessObj, {
     flipped: flipped,
-    lastMove: highlight
+    lastMove: highlight,
+    marks: classMark ? { ['cls-' + classMark.severity]: classMark.square } : null
   });
+}
+
+/* ============================================================
+   GUIDED REVIEW
+   A coach line above the board that names what the move was, what it
+   was worth, and why — with the same badge repeated on the square it
+   was played to. Everything that was already in this tab stays.
+   ============================================================ */
+
+const MOVE_CLASS = {
+  book:       { label:'a book move', icon:'📖', tone:'book' },
+  best:       { label:'best',        icon:'★',  tone:'best' },
+  good:       { label:'a good move', icon:'✓',  tone:'good' },
+  inaccuracy: { label:'an inaccuracy', icon:'?!', tone:'inaccuracy' },
+  mistake:    { label:'a mistake',   icon:'?',  tone:'mistake' },
+  blunder:    { label:'a blunder',   icon:'??', tone:'blunder' }
+};
+
+/* Book moves aren't an engine severity — they're a fact about the opening,
+   so they're detected separately and take priority in the headline. */
+function classifyReplayMove(st, ply){
+  const moment = st.map[ply];
+  if (!moment) return null;
+  let severity = moment.severity || 'good';
+  if (st.bookPlies && st.bookPlies.has(ply) && (severity === 'best' || severity === 'good')){
+    severity = 'book';
+  }
+  return { severity, moment };
+}
+
+/* Which plies were still in the opening book, for the "book move" badge. */
+function bookPliesFor(moves){
+  const set = new Set();
+  try{
+    const g = new Chess();
+    for (let i = 0; i < moves.length; i++){
+      const entries = getOpeningBook()[bookKey(g.fen(), g)] || [];
+      const inBook = entries.some(e => e.san === moves[i].san);
+      const mv = g.move(moves[i].san);
+      if (!mv) break;
+      if (inBook) set.add(i + 1); else break;   // once out of book, stay out
+    }
+  } catch(e){}
+  return set;
+}
+
+function paintReviewEval(gameId, cpWhite, mateIn){
+  const fill = document.getElementById('reveval-fill-' + gameId);
+  const label = document.getElementById('reveval-num-' + gameId);
+  if (!fill || !label) return;
+  let pct, text;
+  if (mateIn !== null && mateIn !== undefined){
+    pct = mateIn > 0 ? 100 : 0;
+    text = 'M' + Math.abs(mateIn);
+  } else {
+    const cp = Math.max(-1000, Math.min(1000, cpWhite || 0));
+    pct = 50 + 50 * Math.tanh(cp / 400);
+    text = (cp / 100 > 0 ? '+' : '') + (cp / 100).toFixed(2);
+  }
+  fill.style.width = pct + '%';
+  label.textContent = text;
+  label.classList.toggle('dark-side', pct < 22);
 }
 
 /* ============================================================
@@ -5430,6 +5573,11 @@ function buildReplayPanel(rec){
   body.innerHTML = headerHtml + staleHtml + reviewBtnHtml + statsHtml + styleHtml + `
     <div class="replay-grid">
       <div>
+        <div class="review-eval" id="reveval-${rec.id}">
+          <div class="review-eval-fill" id="reveval-fill-${rec.id}"></div>
+          <span class="review-eval-num" id="reveval-num-${rec.id}"></span>
+        </div>
+        <div class="coach-bubble" id="rbcoach-${rec.id}"></div>
         <div class="board-frame">
           <div class="board" id="rbboard-${rec.id}"></div>
         </div>
@@ -5476,6 +5624,9 @@ function buildReplayPanel(rec){
     });
   });
 
+  if (replayState[rec.id] && !replayState[rec.id].bookPlies){
+    replayState[rec.id].bookPlies = bookPliesFor(replayState[rec.id].moves);
+  }
   updateReplay(rec.id);
 }
 
@@ -5488,12 +5639,53 @@ function updateReplay(gameId){
     temp.move(st.moves[i].san);
   }
   const last = st.ply > 0 ? st.moves[st.ply - 1] : null;
+  const cls = st.ply > 0 ? classifyReplayMove(st, st.ply) : null;
   renderReplayBoard(
     document.getElementById('rbboard-' + gameId),
     temp,
     st.flipped,
-    last ? { from: last.from, to: last.to } : null
+    last ? { from: last.from, to: last.to } : null,
+    cls && last ? { severity: cls.severity, square: last.to } : null
   );
+
+  /* The eval bar reads white-perspective, like the one on the Play tab. */
+  const moment0 = st.map[st.ply];
+  if (st.ply === 0){
+    paintReviewEval(gameId, 0, null);
+  } else if (moment0 && typeof moment0.evalAfter === 'number'){
+    paintReviewEval(gameId, moment0.evalAfter, null);
+  }
+
+  const coach = document.getElementById('rbcoach-' + gameId);
+  if (coach){
+    if (st.ply === 0){
+      coach.className = 'coach-bubble';
+      coach.innerHTML = `<div class="coach-body"><div class="coach-head">Starting position</div>
+        <div class="coach-text">Step through with the arrows, or jump to any move on the right.</div></div>`;
+    } else if (cls){
+      const meta = MOVE_CLASS[cls.severity] || MOVE_CLASS.good;
+      const m = cls.moment;
+      const evalChip = typeof m.evalAfter === 'number'
+        ? `<span class="coach-eval">${m.evalAfter/100 >= 0 ? '+' : ''}${(m.evalAfter/100).toFixed(2)}</span>` : '';
+      const why = m.text ? escapeHtml(m.text)
+        : (cls.severity === 'book' ? 'Still following known opening theory.'
+                                   : 'No significant change in the evaluation.');
+      coach.className = 'coach-bubble tone-' + meta.tone;
+      coach.innerHTML = `
+        <span class="coach-badge">${meta.icon}</span>
+        <div class="coach-body">
+          <div class="coach-head"><strong>${escapeHtml(m.san)}</strong> is ${meta.label}${evalChip}</div>
+          <div class="coach-text">${why}</div>
+        </div>`;
+    } else {
+      coach.className = 'coach-bubble';
+      const san = st.moves[st.ply - 1] ? st.moves[st.ply - 1].san : '';
+      coach.innerHTML = `<div class="coach-body"><div class="coach-head">${escapeHtml(san)}</div>
+        <div class="coach-text">${st.hasAnnotations
+          ? 'Nothing flagged on this move.'
+          : 'Run the engine review above for per-move explanations.'}</div></div>`;
+    }
+  }
 
   const plyEl = document.getElementById('rbply-' + gameId);
   if (st.ply === 0){
@@ -8456,6 +8648,28 @@ async function runSelfTests(){
       evalBarOn = wasOn;
       resetEvalBar();
     }
+  });
+
+  check('guided review classifies moves and paints the bar', () => {
+    const ids = Object.keys(MOVE_CLASS);
+    const missing = ['book','best','good','inaccuracy','mistake','blunder']
+      .filter(k => ids.indexOf(k) === -1);
+    if (missing.length) return 'no label for: ' + missing.join(', ');
+
+    // Book detection: 1.e4 e5 2.Nf3 are all theory; a junk move is not.
+    const known = bookPliesFor([{ san:'e4' }, { san:'e5' }, { san:'Nf3' }]);
+    if (!known.has(1) || !known.has(2)) return 'opening moves not recognised as book';
+    const offbeat = bookPliesFor([{ san:'a4' }, { san:'h5' }]);
+    if (offbeat.has(2)) return 'a non-theory move was called book';
+
+    // Book only applies to moves that were also sound.
+    const st = { map: { 1:{ severity:'best', san:'e4' }, 2:{ severity:'blunder', san:'e5' } },
+                 bookPlies: new Set([1, 2]) };
+    if (classifyReplayMove(st, 1).severity !== 'book') return 'sound book move not tagged book';
+    if (classifyReplayMove(st, 2).severity !== 'blunder')
+      return 'a blunder was relabelled as a book move';
+    if (classifyReplayMove(st, 9) !== null) return 'classified a ply with no data';
+    return true;
   });
 
   check('no two top-level functions share a name', () => {
