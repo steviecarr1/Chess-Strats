@@ -2523,6 +2523,10 @@
 
   <!-- PROGRESS VIEW -->
   <section class="view" id="view-progress">
+    <div class="subtabs" id="progressSubtabs">
+      <button type="button" class="subtab active" data-src="bot">Against the bot</button>
+      <button type="button" class="subtab" data-src="imported">Imported games</button>
+    </div>
     <div id="progressContent"></div>
   </section>
 
@@ -7791,6 +7795,16 @@ if (analysisSubtabs){
   });
 }
 
+const progressSubtabs = document.getElementById('progressSubtabs');
+if (progressSubtabs){
+  progressSubtabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.subtab');
+    if (!btn || btn.dataset.src === progressSource) return;
+    progressSource = btn.dataset.src;
+    renderProgressView();
+  });
+}
+
 const importPgnBtn = document.getElementById('importPgnBtn');
 if (importPgnBtn){
   importPgnBtn.addEventListener('click', async () => {
@@ -9976,18 +9990,46 @@ function svgBarChart(bars){
   </svg>`;
 }
 
+/* Counts on the sub-tabs, so an empty list is obviously empty rather than
+   looking broken. */
+function updateProgressSubtabs(allGames){
+  const bar = document.getElementById('progressSubtabs');
+  if (!bar) return;
+  const counts = { bot: 0, imported: 0 };
+  (allGames || []).forEach(g => { g.imported ? counts.imported++ : counts.bot++; });
+  bar.querySelectorAll('.subtab').forEach(btn => {
+    const src = btn.dataset.src;
+    const base = src === 'imported' ? 'Imported games' : 'Against the bot';
+    btn.textContent = base + (counts[src] ? ' (' + counts[src] + ')' : '');
+    btn.classList.toggle('active', progressSource === src);
+  });
+}
+let progressSource = 'bot';   // 'bot' | 'imported'
+
 async function renderProgressView(){
   const el = document.getElementById('progressContent');
   el.innerHTML = '<div class="analysis-loading"><div class="spin"></div>Crunching your games…</div>';
 
-  const games = (await loadAllGames()).slice().sort((a, b) => a.date - b.date);
-  const puzzles = await loadAllPuzzles();
-  const reviewed = games.filter(g => typeof g.accuracy === 'number');
+  const allGames = await loadAllGames();
+  updateProgressSubtabs(allGames);
+
+  /* Same split as Analysis and History: a bot game at a chosen ELO and an
+     imported chess.com game measure different things, so their stats never
+     get averaged into one number. */
+  const games = allGames
+    .filter(g => progressSource === 'imported' ? !!g.imported : !g.imported)
+    .slice().sort((a, b) => a.date - b.date);
 
   if (!games.length){
-    el.innerHTML = '<div class="analysis-empty">No games yet. Play a few and your progress will show up here.</div>';
+    el.innerHTML = progressSource === 'imported'
+      ? '<div class="analysis-empty">No imported games yet. Bring them in from Settings → Import games.</div>'
+      : '<div class="analysis-empty">No bot games yet. Play a few and your progress will show up here.</div>';
     return;
   }
+
+  const gameIds = new Set(games.map(g => g.id));
+  const puzzles = (await loadAllPuzzles()).filter(p => gameIds.has(p.sourceGameId));
+  const reviewed = games.filter(g => typeof g.accuracy === 'number');
 
   // --- Headline numbers ---
   const outcomes = games.map(resolveOutcome);
@@ -10013,13 +10055,38 @@ async function renderProgressView(){
   }));
   const phaseTotal = phaseLoss.opening + phaseLoss.middlegame + phaseLoss.endgame;
 
-  // --- Record by opponent style ---
+  /* --- The "who did you play" breakdown: bot games have a personality
+     (botStyleName), imported games don't — they have a real opponent's
+     rating instead. Bucketing imported games by opponent rating answers
+     the question that actually matters for chess.com games: does the
+     unpredictability get worse at a particular strength, or is it steady
+     across the board. */
   const byStyle = {};
+  const byOppRating = {};
+  const RATING_BUCKETS = ['< 400', '400–599', '600–799', '800–999', '1000+', 'Unrated'];
+  const bucketFor = elo => {
+    if (!elo) return 'Unrated';
+    if (elo < 400) return '< 400';
+    if (elo < 600) return '400–599';
+    if (elo < 800) return '600–799';
+    if (elo < 1000) return '800–999';
+    return '1000+';
+  };
   games.forEach(g => {
-    const k = g.botStyleName || 'Unknown';
-    if (!byStyle[k]) byStyle[k] = { n:0, acc:0, accN:0 };
-    byStyle[k].n++;
-    if (typeof g.accuracy === 'number'){ byStyle[k].acc += g.accuracy; byStyle[k].accN++; }
+    if (progressSource === 'imported'){
+      const k = bucketFor(g.botElo);
+      if (!byOppRating[k]) byOppRating[k] = { n:0, wins:0, losses:0, draws:0 };
+      byOppRating[k].n++;
+      const o = resolveOutcome(g);
+      if (o === 'win') byOppRating[k].wins++;
+      else if (o === 'loss') byOppRating[k].losses++;
+      else if (o === 'draw') byOppRating[k].draws++;
+    } else {
+      const k = g.botStyleName || 'Unknown';
+      if (!byStyle[k]) byStyle[k] = { n:0, acc:0, accN:0 };
+      byStyle[k].n++;
+      if (typeof g.accuracy === 'number'){ byStyle[k].acc += g.accuracy; byStyle[k].accN++; }
+    }
   });
 
   // --- Puzzle stats ---
@@ -10038,6 +10105,19 @@ async function renderProgressView(){
     v: g.counts ? g.counts.blunder : 0,
     label: String(i + 1)
   }));
+
+  const byOppRatingRows = RATING_BUCKETS
+    .filter(k => byOppRating[k])
+    .map(k => {
+      const r = byOppRating[k];
+      const winPct = r.n ? (r.wins / r.n) * 100 : 0;
+      return `<tr>
+        <td>${k}</td>
+        <td>${r.n}</td>
+        <td>${r.wins}–${r.losses}–${r.draws}</td>
+        <td>${winPct.toFixed(0)}%</td>
+      </tr>`;
+    }).join('');
 
   el.innerHTML = `
     <div class="prog-stats">
@@ -10086,6 +10166,15 @@ async function renderProgressView(){
         </div>` : '<div class="chart-empty">Review some games to see this.</div>'}
     </div>
 
+    ${progressSource === 'imported' ? `
+    <div class="prog-card">
+      <h3>By opponent rating</h3>
+      <p class="prog-sub">Chess.com opponents don't have a "style" — this groups them by rating instead, so you can see whether the unpredictability tracks their strength or not.</p>
+      <table class="prog-table">
+        <tr><th>Opponent rating</th><th>Games</th><th>W–L–D</th><th>Win %</th></tr>
+        ${byOppRatingRows || '<tr><td colspan="4">No rated opponents yet.</td></tr>'}
+      </table>
+    </div>` : `
     <div class="prog-card">
       <h3>By opponent style</h3>
       <table class="prog-table">
@@ -10096,7 +10185,7 @@ async function renderProgressView(){
           <td>${byStyle[k].accN ? (byStyle[k].acc / byStyle[k].accN).toFixed(1) + '%' : '—'}</td>
         </tr>`).join('')}
       </table>
-    </div>
+    </div>`}
 
     <div class="prog-card">
       <h3>Your most common tactical gaps</h3>
