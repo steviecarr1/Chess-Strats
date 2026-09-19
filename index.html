@@ -2150,58 +2150,7 @@
   }
 
 
-  /* ===== Guided review: eval bar, coach line, square badges ===== */
-  .review-eval{
-    position:relative;
-    height:26px;
-    border-radius:7px;
-    overflow:hidden;
-    background:var(--felt-800);
-    margin-bottom:10px;
-  }
-  .review-eval-fill{
-    position:absolute;left:0;top:0;bottom:0;
-    width:50%;
-    background:#e6d5b8;
-    transition:width .3s ease;
-  }
-  .review-eval-num{
-    position:absolute;left:9px;top:50%;transform:translateY(-50%);
-    font-size:.74rem;font-weight:700;color:var(--felt-950);
-  }
-  .review-eval-num.dark-side{left:auto;right:9px;color:var(--ivory);}
-
-  .coach-bubble{
-    display:flex;align-items:flex-start;gap:10px;
-    background:var(--felt-900);
-    border:1px solid var(--felt-700);
-    border-radius:12px;
-    padding:11px 13px;
-    margin-bottom:12px;
-  }
-  .coach-badge{
-    width:26px;height:26px;border-radius:50%;flex-shrink:0;
-    display:flex;align-items:center;justify-content:center;
-    font-size:.78rem;font-weight:700;
-    background:var(--felt-700);color:var(--ivory);
-  }
-  .coach-body{min-width:0;}
-  .coach-head{font-size:.94rem;color:var(--ivory);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .coach-text{font-size:.86rem;line-height:1.55;color:var(--ivory-dim);margin-top:3px;}
-  .coach-eval{
-    font-size:.74rem;font-weight:700;
-    background:var(--felt-800);color:var(--ivory);
-    border-radius:5px;padding:2px 7px;
-  }
-  .coach-bubble.tone-book    .coach-badge{background:#8a6a3f;color:#fff;}
-  .coach-bubble.tone-best    .coach-badge{background:var(--outcome-win);color:#fff;}
-  .coach-bubble.tone-good    .coach-badge{background:var(--outcome-win);color:#fff;}
-  .coach-bubble.tone-inaccuracy .coach-badge{background:#6f93a8;color:#fff;}
-  .coach-bubble.tone-mistake .coach-badge{background:#c98a3c;color:#fff;}
-  .coach-bubble.tone-blunder .coach-badge{background:var(--outcome-loss);color:#fff;}
-  .coach-bubble.tone-blunder{border-color:var(--outcome-loss);}
-  .coach-bubble.tone-mistake{border-color:#c98a3c;}
-
+  /* ===== Guided review: square badges, arrows, bad-move tint ===== */
   /* The same badge, on the square the move was played to. */
   .sq[class*="cls-"]::after{
     content:'';
@@ -2227,6 +2176,48 @@
   }
   @media (prefers-reduced-motion:reduce){
     .review-eval-fill{transition:none;}
+  }
+
+
+  /* The move that was played, tinted by how bad it was. */
+  .sq.cls-inaccuracy::before,
+  .sq.cls-mistake::before,
+  .sq.cls-blunder::before{
+    content:'';
+    position:absolute;
+    inset:0;
+    z-index:1;
+    pointer-events:none;
+  }
+  .sq.cls-inaccuracy::before{background:rgba(111,147,168,.42);}
+  .sq.cls-mistake::before{background:rgba(201,138,60,.45);}
+  .sq.cls-blunder::before{background:rgba(177,84,58,.52);}
+
+  /* Arrow overlay. The SVG stretches over the grid; its 0..8 viewBox means
+     one unit is one square at any board size. */
+  .board{position:relative;}
+  .board-arrows{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    pointer-events:none;
+    z-index:4;
+    overflow:visible;
+  }
+  .board-arrows .arrow{
+    stroke-width:.17;
+    stroke-linecap:round;
+    opacity:.92;
+  }
+  .board-arrows .arrow-best{stroke:#5c9678;color:#5c9678;}
+  .board-arrows .arrow-inaccuracy{stroke:#6f93a8;color:#6f93a8;stroke-dasharray:.3 .22;}
+  .board-arrows .arrow-mistake{stroke:#c98a3c;color:#c98a3c;stroke-dasharray:.3 .22;}
+  .board-arrows .arrow-blunder{stroke:#b1543a;color:#b1543a;stroke-dasharray:.3 .22;}
+
+  .replay-grid .eval-bar{width:18px;}
+  @media (max-width:700px){
+    .replay-grid .eval-bar{width:12px;}
   }
 
 </style>
@@ -2930,7 +2921,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-09-18a · guided review';
+const BUILD = '2026-09-18b · board arrows and side eval bar';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -5104,6 +5095,67 @@ document.getElementById('puzzleNextBtn').addEventListener('click', () => {
    REPLAY BOARD — read-only board used by the Analysis tab
    ============================================================ */
 
+/* ============================================================
+   BOARD ARROWS
+   An overlay showing the move the engine wanted. Drawn in an SVG with a
+   0..8 viewBox and preserveAspectRatio="none", so square coordinates map
+   straight onto the grid at any board size without measuring pixels.
+   ============================================================ */
+
+function squareToXY(square, flipped){
+  const file = 'abcdefgh'.indexOf(square[0]);
+  const rank = parseInt(square[1], 10) - 1;
+  if (file < 0 || rank < 0) return null;
+  const col = flipped ? 7 - file : file;
+  const row = flipped ? rank : 7 - rank;
+  return { x: col + 0.5, y: row + 0.5 };
+}
+
+function clearBoardArrows(boardEl){
+  if (!boardEl) return;
+  const old = boardEl.querySelector('.board-arrows');
+  if (old) old.remove();
+}
+
+function drawBoardArrow(boardEl, from, to, flipped, tone){
+  if (!boardEl || !from || !to) return;
+  const a = squareToXY(from, flipped), b = squareToXY(to, flipped);
+  if (!a || !b) return;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  let svg = boardEl.querySelector('.board-arrows');
+  if (!svg){
+    svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'board-arrows');
+    svg.setAttribute('viewBox', '0 0 8 8');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    boardEl.appendChild(svg);
+  }
+
+  /* Stop short of the centre so the arrowhead sits on the edge of the
+     destination square rather than covering the piece. */
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const trim = 0.34;
+  const x2 = b.x - (dx / len) * trim;
+  const y2 = b.y - (dy / len) * trim;
+
+  const id = 'ah-' + tone + '-' + Math.random().toString(36).slice(2, 7);
+  const defs = document.createElementNS(NS, 'defs');
+  defs.innerHTML = `<marker id="${id}" viewBox="0 0 10 10" refX="7" refY="5"
+      markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/></marker>`;
+  svg.appendChild(defs);
+
+  const line = document.createElementNS(NS, 'line');
+  line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+  line.setAttribute('x2', x2);  line.setAttribute('y2', y2);
+  line.setAttribute('class', 'arrow arrow-' + tone);
+  line.setAttribute('marker-end', 'url(#' + id + ')');
+  svg.appendChild(line);
+}
+
+
 function renderReplayBoard(container, chessObj, flipped, highlight, classMark){
   renderChessBoard(container, chessObj, {
     flipped: flipped,
@@ -5169,9 +5221,8 @@ function paintReviewEval(gameId, cpWhite, mateIn){
     pct = 50 + 50 * Math.tanh(cp / 400);
     text = (cp / 100 > 0 ? '+' : '') + (cp / 100).toFixed(2);
   }
-  fill.style.width = pct + '%';
+  fill.style.height = pct + '%';
   label.textContent = text;
-  label.classList.toggle('dark-side', pct < 22);
 }
 
 /* ============================================================
@@ -5573,13 +5624,14 @@ function buildReplayPanel(rec){
   body.innerHTML = headerHtml + staleHtml + reviewBtnHtml + statsHtml + styleHtml + `
     <div class="replay-grid">
       <div>
-        <div class="review-eval" id="reveval-${rec.id}">
-          <div class="review-eval-fill" id="reveval-fill-${rec.id}"></div>
-          <span class="review-eval-num" id="reveval-num-${rec.id}"></span>
-        </div>
-        <div class="coach-bubble" id="rbcoach-${rec.id}"></div>
-        <div class="board-frame">
-          <div class="board" id="rbboard-${rec.id}"></div>
+        <div class="board-with-eval">
+          <div class="eval-bar" id="reveval-${rec.id}" aria-hidden="true">
+            <div class="eval-fill" id="reveval-fill-${rec.id}"></div>
+            <span class="eval-num" id="reveval-num-${rec.id}"></span>
+          </div>
+          <div class="board-frame">
+            <div class="board" id="rbboard-${rec.id}"></div>
+          </div>
         </div>
         <div class="replay-controls">
           <button data-act="start">⏮</button>
@@ -5640,13 +5692,23 @@ function updateReplay(gameId){
   }
   const last = st.ply > 0 ? st.moves[st.ply - 1] : null;
   const cls = st.ply > 0 ? classifyReplayMove(st, st.ply) : null;
+  const boardEl = document.getElementById('rbboard-' + gameId);
   renderReplayBoard(
-    document.getElementById('rbboard-' + gameId),
+    boardEl,
     temp,
     st.flipped,
     last ? { from: last.from, to: last.to } : null,
     cls && last ? { severity: cls.severity, square: last.to } : null
   );
+
+  /* On a flagged move, show what should have been played instead. */
+  clearBoardArrows(boardEl);
+  const flagged = cls && ['inaccuracy','mistake','blunder'].indexOf(cls.severity) !== -1;
+  if (flagged && cls.moment.bestMove && last){
+    const bm = cls.moment.bestMove;
+    drawBoardArrow(boardEl, bm.slice(0, 2), bm.slice(2, 4), st.flipped, 'best');
+    drawBoardArrow(boardEl, last.from, last.to, st.flipped, cls.severity);
+  }
 
   /* The eval bar reads white-perspective, like the one on the Play tab. */
   const moment0 = st.map[st.ply];
@@ -5654,37 +5716,6 @@ function updateReplay(gameId){
     paintReviewEval(gameId, 0, null);
   } else if (moment0 && typeof moment0.evalAfter === 'number'){
     paintReviewEval(gameId, moment0.evalAfter, null);
-  }
-
-  const coach = document.getElementById('rbcoach-' + gameId);
-  if (coach){
-    if (st.ply === 0){
-      coach.className = 'coach-bubble';
-      coach.innerHTML = `<div class="coach-body"><div class="coach-head">Starting position</div>
-        <div class="coach-text">Step through with the arrows, or jump to any move on the right.</div></div>`;
-    } else if (cls){
-      const meta = MOVE_CLASS[cls.severity] || MOVE_CLASS.good;
-      const m = cls.moment;
-      const evalChip = typeof m.evalAfter === 'number'
-        ? `<span class="coach-eval">${m.evalAfter/100 >= 0 ? '+' : ''}${(m.evalAfter/100).toFixed(2)}</span>` : '';
-      const why = m.text ? escapeHtml(m.text)
-        : (cls.severity === 'book' ? 'Still following known opening theory.'
-                                   : 'No significant change in the evaluation.');
-      coach.className = 'coach-bubble tone-' + meta.tone;
-      coach.innerHTML = `
-        <span class="coach-badge">${meta.icon}</span>
-        <div class="coach-body">
-          <div class="coach-head"><strong>${escapeHtml(m.san)}</strong> is ${meta.label}${evalChip}</div>
-          <div class="coach-text">${why}</div>
-        </div>`;
-    } else {
-      coach.className = 'coach-bubble';
-      const san = st.moves[st.ply - 1] ? st.moves[st.ply - 1].san : '';
-      coach.innerHTML = `<div class="coach-body"><div class="coach-head">${escapeHtml(san)}</div>
-        <div class="coach-text">${st.hasAnnotations
-          ? 'Nothing flagged on this move.'
-          : 'Run the engine review above for per-move explanations.'}</div></div>`;
-    }
   }
 
   const plyEl = document.getElementById('rbply-' + gameId);
@@ -8672,6 +8703,40 @@ async function runSelfTests(){
     return true;
   });
 
+  check('square coordinates map correctly, including flipped boards', () => {
+    const cases = [
+      ['a8', false, 0.5, 0.5],   // top-left when White is at the bottom
+      ['h1', false, 7.5, 7.5],
+      ['a1', false, 0.5, 7.5],
+      ['a8', true,  7.5, 7.5],   // flipped: a8 is bottom-right
+      ['h1', true,  0.5, 0.5]
+    ];
+    const bad = cases.filter(([sq, flip, x, y]) => {
+      const p = squareToXY(sq, flip);
+      return !p || Math.abs(p.x - x) > 0.01 || Math.abs(p.y - y) > 0.01;
+    }).map(([sq, flip]) => sq + (flip ? ' (flipped)' : ''));
+    if (bad.length) return 'wrong coordinates for: ' + bad.join(', ');
+    if (squareToXY('z9', false) !== null) return 'accepted a nonsense square';
+    return true;
+  });
+
+  check('arrows draw onto the board and clear again', () => {
+    const host = document.createElement('div');
+    host.className = 'board';
+    document.body.appendChild(host);
+    try{
+      drawBoardArrow(host, 'e2', 'e4', false, 'best');
+      const svg = host.querySelector('.board-arrows');
+      if (!svg) return 'no arrow layer created';
+      if (!svg.querySelector('line.arrow-best')) return 'arrow line missing';
+      drawBoardArrow(host, 'd7', 'd5', false, 'blunder');
+      if (svg.querySelectorAll('line').length !== 2) return 'second arrow not added';
+      clearBoardArrows(host);
+      if (host.querySelector('.board-arrows')) return 'arrows not cleared';
+      return true;
+    } finally { host.remove(); }
+  });
+
   check('no two top-level functions share a name', () => {
     // A duplicate declaration silently overwrites the earlier one, which is
     // how the puzzle explanation ended up numbering a FEN character by
@@ -8743,7 +8808,9 @@ async function runSelfTests(){
       [{ playerColor:'b', resultText:'Checkmate — Black wins.' }, 'win'],
       [{ playerColor:'w', resultText:'Checkmate — White wins.' }, 'win'],
       [{ playerColor:'w', resultText:'Draw by stalemate.' }, 'draw'],
-      [{ playerColor:'w', resultText:'White resigns.' }, 'loss']
+      [{ playerColor:'w', resultText:'White resigns.' }, 'loss'],
+      [{ playerColor:'w', resultText:'White (you) resigned.' }, 'loss'],
+      [{ playerColor:'b', resultText:'White (you) resigned.' }, 'win']
     ];
     const bad = cases.filter(([rec, want]) => resolveOutcome(rec) !== want)
       .map(([rec, want]) => `${rec.playerColor}/${rec.resultText} → ${resolveOutcome(rec)}, wanted ${want}`);
@@ -9460,8 +9527,11 @@ function resolveOutcome(rec){
   if (/draw|stalemate|insufficient|repetition|50-move/i.test(txt)) return 'draw';
   if (new RegExp(youAre + ' wins', 'i').test(txt)) return 'win';
   if (new RegExp(them + ' wins', 'i').test(txt)) return 'loss';
-  if (new RegExp(youAre + ' resigns', 'i').test(txt)) return 'loss';
-  if (new RegExp(them + ' resigns', 'i').test(txt)) return 'win';
+  /* The game stores "White (you) resigned." while the status line says
+     "White resigns." — match both forms, and anything between the colour
+     and the verb. */
+  if (new RegExp(youAre + '\\b.*resign', 'i').test(txt)) return 'loss';
+  if (new RegExp(them + '\\b.*resign', 'i').test(txt)) return 'win';
   return 'unknown';
 }
 
