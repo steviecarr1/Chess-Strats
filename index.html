@@ -1115,6 +1115,14 @@
   }
   .history-detail{margin-top:16px;}
   .history-detail .btn.secondary{width:auto;padding:8px 14px;margin-bottom:14px;}
+  .history-section{margin-bottom:28px;}
+  .history-section-title{
+    font-family:'Fraunces',serif;color:var(--brass-bright);margin:0 0 3px;font-size:1.08rem;
+  }
+  .history-section-title .history-section-count{
+    color:var(--ivory-dim);font-family:'Inter',sans-serif;font-size:.85rem;font-weight:400;
+  }
+  .history-section-stats{font-size:.82rem;color:var(--ivory-dim);margin:0 0 12px;}
   .pgn-block{
     font-family:monospace;
     font-size:.82rem;
@@ -4804,18 +4812,54 @@ async function renderHistoryView(){
     container.innerHTML = '<div class="analysis-empty">No games saved yet. Finish a game and it\'ll show up here.</div>';
     return;
   }
-  const rows = games.map(g => `
+
+  /* Split by source rather than listing everything together — a bot game
+     at a chosen ELO and an imported chess.com game answer different
+     questions ("is the trainer working?" vs. "am I improving for real?"),
+     so their records shouldn't be averaged into one list. */
+  const localGames = games.filter(g => !g.imported);
+  const importedGames = games.filter(g => !!g.imported);
+
+  const rowHtml = g => `
     <div class="history-row" data-id="${g.id}">
       <div class="hr-left">
         <span class="date">${new Date(g.date).toLocaleString()}</span>
-        Played ${g.playerColor === 'w' ? 'White' : 'Black'} vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}
+        ${g.imported
+          ? `Played ${g.playerColor === 'w' ? 'White' : 'Black'} vs ${escapeHtml(g.opponentName || 'opponent')}`
+          : `Played ${g.playerColor === 'w' ? 'White' : 'Black'} vs ${g.botElo === 9999 ? 'Stockfish' : g.botElo + ' ELO'}`}
       </div>
       <div class="hr-right">
         <span class="hr-tag">${g.resultText}</span>
         <button class="hr-del" title="Delete this game" aria-label="Delete this game">🗑</button>
       </div>
-    </div>`).join('');
-  container.innerHTML = `<div class="history-list">${rows}</div><div class="history-detail" id="historyDetail"></div>`;
+    </div>`;
+
+  /* One section, with its own W–L–D so the two records never get blended
+     even at a glance. `emptyMsg` still renders the heading so a 0-count
+     section reads as "nothing here yet" rather than looking removed. */
+  const sectionHtml = (title, list, emptyMsg) => {
+    const head = `<h3 class="history-section-title">${title} <span class="history-section-count">(${list.length})</span></h3>`;
+    if (!list.length){
+      return `<div class="history-section">${head}<div class="analysis-empty">${emptyMsg}</div></div>`;
+    }
+    const outcomes = list.map(resolveOutcome);
+    const wins = outcomes.filter(o => o === 'win').length;
+    const losses = outcomes.filter(o => o === 'loss').length;
+    const draws = outcomes.filter(o => o === 'draw').length;
+    const sorted = list.slice().sort((a, b) => b.date - a.date);
+    return `<div class="history-section">
+      ${head}
+      <div class="history-section-stats">${wins}–${losses}–${draws} · W–L–D</div>
+      <div class="history-list">${sorted.map(rowHtml).join('')}</div>
+    </div>`;
+  };
+
+  container.innerHTML =
+    sectionHtml('Endgame Study games', localGames,
+      'No bot games yet — play one from the Play tab.') +
+    sectionHtml('Imported from chess.com', importedGames,
+      'No imported games yet. Bring them in from Settings → Import games.') +
+    '<div class="history-detail" id="historyDetail"></div>';
 
   container.querySelectorAll('.history-row').forEach(row => {
     row.querySelector('.hr-del').addEventListener('click', (e) => {
