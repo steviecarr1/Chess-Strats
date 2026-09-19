@@ -7872,18 +7872,73 @@ refreshSoundUI();
      sloppyRate  chance of picking from the weak tail of the candidate list
      maxHang     biggest material gift a random move may give away (cp).
                  Infinity = this tier will hang anything, queens included.
-     mateBlind   chance of walking past a forced mate it could have played  */
+     mateBlind   chance of walking past a forced mate it could have played
+     panicOnCheck  chance that, when in check with a real alternative (a
+                 legal block or capture existed), the bot steps the king
+                 out instead of considering the alternative at all — not
+                 "a worse move," a DIFFERENT kind of move than it would
+                 otherwise search for. Modelled on real chess.com games
+                 reviewed Sept 2026 (imported into Analysis) where the loss
+                 traced straight back to a reflexive king move on a check
+                 that had a safe block available.
+     forkBlindness  chance that, when the bot is already due for a sloppy
+                 move (see sloppyRate below), it specifically favours one
+                 that walks into a knight/bishop fork over an equally-bad
+                 candidate that doesn't — because forks were the single
+                 most repeated way material got lost in that same review,
+                 not an even spread across blunder types.               */
 const ENGINE_TIERS = {
-  400:  { depth:3,  multipv:14, tolerance:120, blunderRate:0.35,  sloppyRate:0.55, maxHang:Infinity, mateBlind:0.55, uciElo:null },
-  600:  { depth:3,  multipv:13, tolerance:110, blunderRate:0.27,  sloppyRate:0.53, maxHang:700,      mateBlind:0.45, uciElo:null },
-  800:  { depth:4,  multipv:12, tolerance:100, blunderRate:0.20,  sloppyRate:0.50, maxHang:500,      mateBlind:0.35, uciElo:null },
-  1000: { depth:4,  multipv:11, tolerance:90,  blunderRate:0.14,  sloppyRate:0.45, maxHang:400,      mateBlind:0.25, uciElo:null },
-  1200: { depth:5,  multipv:10, tolerance:80,  blunderRate:0.10,  sloppyRate:0.40, maxHang:320,      mateBlind:0.15, uciElo:null },
-  1600: { depth:7,  multipv:6,  tolerance:60,  blunderRate:0.05,  sloppyRate:0.28, maxHang:150,      mateBlind:0.05, uciElo:1600 },
-  2000: { depth:9,  multipv:4,  tolerance:40,  blunderRate:0.015, sloppyRate:0.15, maxHang:100,      mateBlind:0,    uciElo:2000 },
-  2400: { depth:11, multipv:3,  tolerance:20,  blunderRate:0,     sloppyRate:0.04, maxHang:0,        mateBlind:0,    uciElo:2400 },
-  9999: { depth:14, multipv:1,  tolerance:0,   blunderRate:0,     sloppyRate:0,    maxHang:0,        mateBlind:0,    uciElo:null }
+  400:  { depth:3,  multipv:14, tolerance:120, blunderRate:0.35,  sloppyRate:0.55, maxHang:Infinity, mateBlind:0.55, uciElo:null, panicOnCheck:0.55, forkBlindness:0.65 },
+  600:  { depth:3,  multipv:13, tolerance:110, blunderRate:0.27,  sloppyRate:0.53, maxHang:700,      mateBlind:0.45, uciElo:null, panicOnCheck:0.42, forkBlindness:0.55 },
+  800:  { depth:4,  multipv:12, tolerance:100, blunderRate:0.20,  sloppyRate:0.50, maxHang:500,      mateBlind:0.35, uciElo:null, panicOnCheck:0.32, forkBlindness:0.45 },
+  1000: { depth:4,  multipv:11, tolerance:90,  blunderRate:0.14,  sloppyRate:0.45, maxHang:400,      mateBlind:0.25, uciElo:null, panicOnCheck:0.22, forkBlindness:0.35 },
+  1200: { depth:5,  multipv:10, tolerance:80,  blunderRate:0.10,  sloppyRate:0.40, maxHang:320,      mateBlind:0.15, uciElo:null, panicOnCheck:0.14, forkBlindness:0.25 },
+  1600: { depth:7,  multipv:6,  tolerance:60,  blunderRate:0.05,  sloppyRate:0.28, maxHang:150,      mateBlind:0.05, uciElo:1600, panicOnCheck:0.05, forkBlindness:0.10 },
+  2000: { depth:9,  multipv:4,  tolerance:40,  blunderRate:0.015, sloppyRate:0.15, maxHang:100,      mateBlind:0,    uciElo:2000, panicOnCheck:0.01, forkBlindness:0.03 },
+  2400: { depth:11, multipv:3,  tolerance:20,  blunderRate:0,     sloppyRate:0.04, maxHang:0,        mateBlind:0,    uciElo:2400, panicOnCheck:0,    forkBlindness:0    },
+  9999: { depth:14, multipv:1,  tolerance:0,   blunderRate:0,     sloppyRate:0,    maxHang:0,        mateBlind:0,    uciElo:null, panicOnCheck:0,    forkBlindness:0    }
 };
+
+/* Does the position after `uci` let the opponent play ONE move that then
+   attacks two or more of the bot's remaining pieces worth at least a
+   knight each? This is only used to steer WHICH already-bad move gets
+   picked (see forkBlindness above) — it never removes a move from
+   consideration on its own, and it fails safe to `false` on absolutely
+   anything unexpected, because a crash here must never take down move
+   selection for the whole game.
+
+   Implementation note: to ask "what does the piece that just landed on
+   r.to attack", we flip the side-to-move field of the resulting FEN
+   rather than actually playing a move — chess.js has no per-square
+   "attacks" query, and flipping is the standard workaround. We only do
+   this when neither side is in check at that point, since a FEN with the
+   player who is NOT to move sitting in check is invalid and chess.js's
+   own validator will (correctly) refuse it. */
+function wouldWalkIntoFork(g, uci){
+  try{
+    const probe = new Chess(g.fen());
+    const mv = probe.move({ from: uci.slice(0,2), to: uci.slice(2,4), promotion: uci[4] || 'q' });
+    if (!mv || probe.in_check()) return false;
+
+    for (const r of probe.moves({ verbose: true })){
+      const after = new Chess(probe.fen());
+      if (!after.move(r.san) || after.in_check()) continue;
+
+      const flippedFen = after.fen().split(' ');
+      flippedFen[1] = flippedFen[1] === 'w' ? 'b' : 'w';
+      flippedFen[3] = '-';
+      const fen = flippedFen.join(' ');
+      const validator = new Chess();
+      if (validator.validate_fen && !validator.validate_fen(fen).valid) continue;
+
+      const flipped = new Chess(fen);
+      const forkTargets = flipped.moves({ verbose: true })
+        .filter(m => m.from === r.to && m.captured && VALUES[m.captured] >= VALUES.n);
+      if (forkTargets.length >= 2) return true;
+    }
+    return false;
+  } catch(e){ return false; }
+}
 
 let engineConfigured = null; // remembers the last UCI_Elo we applied
 let lastBookOpening = null;  // most recent opening the bot was following
@@ -8070,6 +8125,21 @@ async function chooseEngineMove(g, elo, styleKey){
     return m.from + m.to + (m.promotion || '');
   };
 
+  /* Panic on check: rolled before the generic blunder chance, and separately
+     from it, because it isn't "a random bad move" — it's a specific reflex
+     (step the king, don't look for a block) that only applies when the bot
+     is in check AND had a real alternative. If the only legal replies are
+     king moves anyway, this can't fire — that's not panic, that's forced. */
+  if (g.in_check() && Math.random() < tier.panicOnCheck){
+    const legal = g.moves({ verbose: true });
+    const kingMoves = legal.filter(m => m.piece === 'k');
+    const hadAlternative = legal.some(m => m.piece !== 'k');
+    if (kingMoves.length && hadAlternative){
+      const pick = kingMoves[Math.floor(Math.random() * kingMoves.length)];
+      return pick.from + pick.to + (pick.promotion || '');
+    }
+  }
+
   // Roll for a real error before consulting the engine's opinion at all.
   if (Math.random() < tier.blunderRate){
     const slip = randomLegalMove();
@@ -8096,6 +8166,17 @@ async function chooseEngineMove(g, elo, styleKey){
   if (scored.length > 1 && Math.random() < tier.sloppyRate){
     const tail = scored.slice(Math.max(1, Math.ceil(scored.length / 3)));
     const from = tail.length ? tail : scored.slice(1);
+
+    /* Given that a sloppy move is already happening, real weak players
+       don't pick it uniformly at random — a fork is a specific, repeated
+       shape of mistake, not one blunder type among many. Cap the scan at
+       6 candidates; this only needs to find A fork-prone option, not the
+       whole tail's worth. */
+    if (tier.forkBlindness && Math.random() < tier.forkBlindness){
+      const forky = from.slice(0, 6).filter(s => wouldWalkIntoFork(g, s.uci));
+      if (forky.length) return forky[Math.floor(Math.random() * forky.length)].uci;
+    }
+
     return from[Math.floor(Math.random() * from.length)].uci;
   }
 
@@ -9299,7 +9380,34 @@ async function runSelfTests(){
       if (hi.sloppyRate > lo.sloppyRate)   return `${keys[i]} is sloppier than ${keys[i-1]}`;
       if (hi.depth < lo.depth)             return `${keys[i]} searches shallower than ${keys[i-1]}`;
       if (hi.mateBlind > lo.mateBlind)     return `${keys[i]} misses mate more than ${keys[i-1]}`;
+      if (hi.panicOnCheck > lo.panicOnCheck)     return `${keys[i]} panics on check more than ${keys[i-1]}`;
+      if (hi.forkBlindness > lo.forkBlindness)   return `${keys[i]} is more fork-blind than ${keys[i-1]}`;
     }
+    return true;
+  });
+
+  check('difficulty: check-panic and fork-blindness fade to nothing at full strength', () => {
+    const top = ENGINE_TIERS[9999];
+    if (top.panicOnCheck !== 0) return 'top tier still panics on check';
+    if (top.forkBlindness !== 0) return 'top tier is still fork-blind';
+    const weak = ENGINE_TIERS[400];
+    if (!(weak.panicOnCheck > 0)) return '400 never panics on check';
+    if (!(weak.forkBlindness > 0)) return '400 is never fork-blind';
+    return true;
+  });
+
+  check('wouldWalkIntoFork never throws and returns a boolean', () => {
+    // Can't assert a specific fork is found without a live position built
+    // move-by-move (hand-written FENs are too easy to get subtly wrong to
+    // trust blind) — but it must be exception-safe on ordinary positions
+    // and on garbage input alike, since a throw here must never break move
+    // selection mid-game.
+    const g = new Chess();
+    const r1 = wouldWalkIntoFork(g, 'e2e4');
+    const r2 = wouldWalkIntoFork(g, 'not-a-real-move');
+    const r3 = wouldWalkIntoFork(g, '');
+    if (typeof r1 !== 'boolean' || typeof r2 !== 'boolean' || typeof r3 !== 'boolean')
+      return 'did not fail safe to a boolean on bad input';
     return true;
   });
 
