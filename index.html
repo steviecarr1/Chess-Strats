@@ -2223,6 +2223,50 @@
   .board-arrows .arrow-mistake{stroke:#c98a3c;color:#c98a3c;stroke-dasharray:.3 .22;}
   .board-arrows .arrow-blunder{stroke:#b1543a;color:#b1543a;stroke-dasharray:.3 .22;}
 
+  /* ---- User-drawn arrows (right-click drag, chess.com style) ----
+     A second overlay, kept separate from the analysis arrows above so that
+     clearBoardArrows() never wipes the notes you drew yourself. */
+  .board-user-arrows{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    pointer-events:none;
+    z-index:5;
+    overflow:visible;
+  }
+  .board-user-arrows .ua-arrow{
+    fill:none;
+    stroke-width:.185;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+    opacity:.85;
+  }
+  .board-user-arrows .ua-arrow.ua-preview{opacity:.6;}
+  .board-user-arrows .ua-square{
+    fill:none;
+    stroke-width:.13;
+    opacity:.85;
+  }
+  .board-hint{
+    margin:10px 2px 0;
+    font-size:.74rem;
+    line-height:1.5;
+    color:var(--ivory-dim);
+    opacity:.75;
+  }
+  .board-hint kbd{
+    font-family:inherit;
+    font-size:.72rem;
+    padding:1px 5px;
+    border-radius:3px;
+    border:1px solid rgba(193,154,73,.35);
+    background:rgba(0,0,0,.2);
+  }
+  /* Let a vertical swipe still scroll the page, but stop the browser from
+     hijacking a press-and-drag on the board as a pan/zoom gesture. */
+  .board{touch-action:pan-y;}
+
   .replay-grid .eval-bar{width:18px;}
   @media (max-width:700px){
     .replay-grid .eval-bar{width:12px;}
@@ -2343,6 +2387,10 @@
             <div class="board" id="board"></div>
           </div>
         </div>
+
+        <p class="board-hint">Right-click and drag on the board to draw an arrow, right-click a
+          square to ring it. Hold <kbd>Shift</kbd>, <kbd>Alt</kbd> or <kbd>Ctrl</kbd> while you
+          draw for red, blue or orange. On a phone, press and hold, then drag. Left-click clears.</p>
 
       </div>
 
@@ -2715,6 +2763,19 @@
 </div>
 
 <script>
+/* State for the user-drawn arrows. Declared up here rather than beside the
+   rest of that module, because the first board paint happens well before
+   this file's halfway mark and would otherwise reach these before they
+   exist. The code that uses them is under "USER-DRAWN ARROWS" below. */
+const UA_COLORS = {
+  green:  '#4c8f63',
+  red:    '#b1543a',
+  blue:   '#4a7fa5',
+  orange: '#c98a3c'
+};
+const uaStore = new WeakMap();   // board container -> { fen, flipped, shapes, preview }
+let uaSeq = 0;
+
 /* ============================================================
    OPENING REPERTOIRE
    [ ECO, name, side to practise, main line (SAN), description ]
@@ -5442,6 +5503,265 @@ function drawBoardArrow(boardEl, from, to, flipped, tone){
   line.setAttribute('class', 'arrow arrow-' + tone);
   line.setAttribute('marker-end', 'url(#' + id + ')');
   svg.appendChild(line);
+}
+
+/* ============================================================
+   USER-DRAWN ARROWS
+   Right-click drag from one square to another to draw an arrow;
+   right-click a single square to ring it. The same gesture again
+   removes it. Holding a modifier while you draw changes the colour.
+   Left-clicking anywhere, or any move being played, clears the lot —
+   these are scratch notes for the position in front of you, not
+   something that should linger onto the next one.
+
+   Everything lives in an SVG overlay rebuilt after each board paint,
+   because renderChessBoard() wipes the container's contents. The
+   listeners, though, are bound to the container itself exactly once,
+   so they survive every repaint.
+   ============================================================ */
+
+function uaState(container){
+  let st = uaStore.get(container);
+  if (!st){
+    st = { fen:null, flipped:false, shapes:[], preview:null };
+    uaStore.set(container, st);
+  }
+  return st;
+}
+
+/* Which square is under the pointer? Worked out from the board's own
+   rectangle, so it holds for any board size and needs no hit-testing. */
+function uaSquareFromPoint(container, clientX, clientY, flipped){
+  const r = container.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const col = Math.floor((clientX - r.left) / (r.width / 8));
+  const row = Math.floor((clientY - r.top) / (r.height / 8));
+  if (col < 0 || col > 7 || row < 0 || row > 7) return null;
+  return squareName(row, col, flipped);
+}
+
+/* Straight line for most moves; an L-shape for a knight, which is how the
+   move actually travels and is much easier to read on a crowded board. */
+function uaArrowPath(a, b){
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  const trim = 0.30;                       // stop short so the head sits clear of the piece
+
+  if ((adx === 1 && ady === 2) || (adx === 2 && ady === 1)){
+    const corner = adx > ady ? { x:b.x, y:a.y } : { x:a.x, y:b.y };
+    const sx = Math.sign(b.x - corner.x), sy = Math.sign(b.y - corner.y);
+    return `M ${a.x} ${a.y} L ${corner.x} ${corner.y} ` +
+           `L ${b.x - sx * trim} ${b.y - sy * trim}`;
+  }
+
+  const len = Math.hypot(dx, dy) || 1;
+  return `M ${a.x} ${a.y} L ${b.x - (dx / len) * trim} ${b.y - (dy / len) * trim}`;
+}
+
+function paintUserArrows(container){
+  if (!container) return;
+  const old = container.querySelector('.board-user-arrows');
+  if (old) old.remove();
+
+  const st = uaStore.get(container);
+  if (!st) return;
+  const list = st.shapes.concat(st.preview ? [st.preview] : []);
+  if (!list.length) return;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'board-user-arrows');
+  svg.setAttribute('viewBox', '0 0 8 8');
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  /* One arrowhead marker per colour in use, namespaced per board so two
+     boards on the page can't collide over an id. */
+  const uid = container.__uaId || (container.__uaId = 'ua' + (++uaSeq));
+  const used = {};
+  list.forEach(sh => { if (sh.from !== sh.to) used[sh.color] = true; });
+  const markers = Object.keys(used).map(c =>
+    `<marker id="${uid}-${c}" viewBox="0 0 10 10" refX="6.2" refY="5"
+       markerWidth="3.1" markerHeight="3.1" orient="auto-start-reverse">
+       <path d="M0,1 L9,5 L0,9 z" fill="${UA_COLORS[c]}"/></marker>`).join('');
+  if (markers){
+    const defs = document.createElementNS(NS, 'defs');
+    defs.innerHTML = markers;
+    svg.appendChild(defs);
+  }
+
+  for (const sh of list){
+    const a = squareToXY(sh.from, st.flipped);
+    if (!a) continue;
+    const stroke = UA_COLORS[sh.color] || UA_COLORS.green;
+
+    if (sh.from === sh.to){
+      // A single square: ring it rather than fill it, so the piece stays legible.
+      const rect = document.createElementNS(NS, 'rect');
+      rect.setAttribute('x', a.x - 0.5 + 0.065);
+      rect.setAttribute('y', a.y - 0.5 + 0.065);
+      rect.setAttribute('width', 1 - 0.13);
+      rect.setAttribute('height', 1 - 0.13);
+      rect.setAttribute('rx', 0.08);
+      rect.setAttribute('class', 'ua-square' + (sh.preview ? ' ua-preview' : ''));
+      rect.setAttribute('stroke', stroke);
+      svg.appendChild(rect);
+      continue;
+    }
+
+    const b = squareToXY(sh.to, st.flipped);
+    if (!b) continue;
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', uaArrowPath(a, b));
+    path.setAttribute('class', 'ua-arrow' + (sh.preview ? ' ua-preview' : ''));
+    path.setAttribute('stroke', stroke);
+    path.setAttribute('marker-end', `url(#${uid}-${sh.color})`);
+    svg.appendChild(path);
+  }
+
+  container.appendChild(svg);
+}
+
+/* Draw it, recolour it, or take it away — one gesture covers all three. */
+function uaToggleShape(st, from, to, color){
+  const i = st.shapes.findIndex(s => s.from === from && s.to === to);
+  if (i >= 0){
+    if (st.shapes[i].color === color) st.shapes.splice(i, 1);
+    else st.shapes[i].color = color;
+    return;
+  }
+  st.shapes.push({ from, to, color });
+}
+
+function uaClear(container){
+  const st = uaStore.get(container);
+  if (!st || (!st.shapes.length && !st.preview)) return false;
+  st.shapes = [];
+  st.preview = null;
+  paintUserArrows(container);
+  return true;
+}
+
+function uaColorFor(e){
+  if (e.shiftKey) return 'red';
+  if (e.altKey) return 'blue';
+  if (e.ctrlKey || e.metaKey) return 'orange';
+  return 'green';
+}
+
+function bindUserArrows(container){
+  if (!container || container.__uaBound) return;
+  container.__uaBound = true;
+
+  let drag = null;            // { from, to, color, id, touch }
+  let pressTimer = null;
+  let touchStart = null;
+
+  const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; touchStart = null; };
+
+  // Right-click is the draw gesture, so the browser menu has to stay shut.
+  container.addEventListener('contextmenu', e => e.preventDefault());
+
+  container.addEventListener('pointerdown', (e) => {
+    const st = uaState(container);
+
+    /* Touch: no right button exists, so a press-and-hold arms the gesture
+       and the drag that follows draws the arrow. */
+    if (e.pointerType === 'touch'){
+      const from = uaSquareFromPoint(container, e.clientX, e.clientY, st.flipped);
+      if (!from) return;
+      touchStart = { x:e.clientX, y:e.clientY };
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        drag = { from, to:from, color:'green', id:e.pointerId, touch:true };
+        st.preview = { from, to:from, color:'green', preview:true };
+        container.__uaSuppressClick = true;      // don't also select the piece
+        try { if (navigator.vibrate) navigator.vibrate(12); } catch(_){}
+        paintUserArrows(container);
+      }, 420);
+      return;
+    }
+
+    if (e.button !== 2){
+      if (e.button === 0) uaClear(container);   // any left click wipes the notes
+      return;
+    }
+
+    const from = uaSquareFromPoint(container, e.clientX, e.clientY, st.flipped);
+    if (!from) return;
+    e.preventDefault();
+    const color = uaColorFor(e);
+    drag = { from, to:from, color, id:e.pointerId, touch:false };
+    st.preview = { from, to:from, color, preview:true };
+    paintUserArrows(container);
+    try { container.setPointerCapture(e.pointerId); } catch(_){}
+  });
+
+  container.addEventListener('pointermove', (e) => {
+    // A finger that travels before the timer fires was scrolling, not drawing.
+    if (pressTimer && touchStart){
+      if (Math.hypot(e.clientX - touchStart.x, e.clientY - touchStart.y) > 12) cancelPress();
+    }
+    if (!drag || e.pointerId !== drag.id) return;
+    if (drag.touch && e.cancelable) e.preventDefault();
+
+    const st = uaState(container);
+    const to = uaSquareFromPoint(container, e.clientX, e.clientY, st.flipped);
+    if (!to || to === drag.to) return;
+    drag.to = to;
+    st.preview = { from:drag.from, to, color:drag.color, preview:true };
+    paintUserArrows(container);
+  }, { passive:false });
+
+  const finish = (e, cancelled) => {
+    const hadTimer = !!pressTimer;
+    cancelPress();
+    const st = uaState(container);
+
+    if (!drag){
+      /* A plain tap with nothing drawn: treat it like a left click and
+         clear, matching what the mouse does. */
+      if (e && e.pointerType === 'touch' && hadTimer) uaClear(container);
+      return;
+    }
+    if (e && e.pointerId !== drag.id) return;
+
+    const d = drag;
+    drag = null;
+    st.preview = null;
+    if (!cancelled) uaToggleShape(st, d.from, d.to, d.color);
+    paintUserArrows(container);
+
+    if (d.touch){
+      // Release the click block shortly after, in case no click ever lands.
+      setTimeout(() => { container.__uaSuppressClick = false; }, 500);
+    }
+  };
+
+  container.addEventListener('pointerup', e => finish(e, false));
+  container.addEventListener('pointercancel', e => finish(e, true));
+
+  container.addEventListener('click', (e) => {
+    if (container.__uaSuppressClick){
+      container.__uaSuppressClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+}
+
+/* Called from the renderer after every paint. */
+function syncUserArrows(container, chessObj, flipped){
+  const st = uaState(container);
+  const fen = (chessObj && chessObj.fen) ? chessObj.fen() : '';
+  if (st.fen !== fen){                  // the position changed — notes are stale
+    st.fen = fen;
+    st.shapes = [];
+    st.preview = null;
+  }
+  st.flipped = !!flipped;
+  bindUserArrows(container);
+  paintUserArrows(container);
 }
 
 
@@ -8349,6 +8669,10 @@ function renderChessBoard(container, chessObj, opts){
 
   container.innerHTML = '';
   container.appendChild(frag);
+
+  /* Repaint the arrows you drew: the wipe above just removed the overlay,
+     but the shapes themselves live outside the DOM and survive. */
+  if (o.userArrows !== false) syncUserArrows(container, chessObj, flipped);
 }
 
 /* ---- Sliding animation ----
@@ -9121,6 +9445,50 @@ async function runSelfTests(){
       return true;
     } finally {
       setPanelMode(wasActive);
+    }
+  });
+
+  check('user-drawn arrows survive a repaint and clear on a new position', () => {
+    const host = document.getElementById('board');
+    if (!host) return 'no board';
+    const probe = new Chess();
+    const st = uaState(host);
+    const savedShapes = st.shapes.slice(), savedFen = st.fen;
+    try{
+      st.fen = probe.fen();
+      st.shapes = [];
+      st.flipped = false;
+      uaToggleShape(st, 'e2', 'e4', 'green');
+      uaToggleShape(st, 'g1', 'f3', 'green');       // a knight: drawn as an L
+      uaToggleShape(st, 'd5', 'd5', 'red');         // a single ringed square
+      paintUserArrows(host);
+
+      let svg = host.querySelector('.board-user-arrows');
+      if (!svg) return 'overlay not drawn';
+      if (svg.querySelectorAll('.ua-arrow').length !== 2) return 'wrong number of arrows';
+      if (svg.querySelectorAll('.ua-square').length !== 1) return 'square marker missing';
+      const knight = svg.querySelectorAll('.ua-arrow')[1].getAttribute('d');
+      if ((knight.match(/L/g) || []).length !== 2) return 'knight arrow is not L-shaped';
+
+      // The overlay is rebuilt by the renderer, so it must come back.
+      renderChessBoard(host, probe, { flipped:false });
+      if (!host.querySelector('.board-user-arrows')) return 'arrows lost on repaint';
+
+      // Drawing the same arrow again is how you take it away.
+      uaToggleShape(st, 'e2', 'e4', 'green');
+      if (st.shapes.some(s => s.from === 'e2' && s.to === 'e4')) return 'repeat gesture did not erase';
+
+      // Once a move is played the notes no longer describe the board.
+      probe.move('e4');
+      renderChessBoard(host, probe, { flipped:false });
+      if (uaState(host).shapes.length) return 'arrows outlived the position';
+      if (host.querySelector('.board-user-arrows')) return 'stale overlay left behind';
+      return true;
+    } finally {
+      const cur = uaState(host);
+      cur.shapes = savedShapes;
+      cur.fen = savedFen;
+      renderBoard();
     }
   });
 
