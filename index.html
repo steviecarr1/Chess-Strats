@@ -2237,16 +2237,18 @@
   }
   .board-user-arrows .ua-arrow{
     fill:none;
-    stroke-width:.185;
-    stroke-linecap:round;
-    stroke-linejoin:round;
-    opacity:.85;
+    /* Deliberately slim: an arrow is an annotation over the position, so it
+       should never be wide enough to hide the squares it crosses. */
+    stroke-width:.105;
+    stroke-linecap:butt;
+    stroke-linejoin:miter;
+    opacity:.8;
   }
-  .board-user-arrows .ua-arrow.ua-preview{opacity:.6;}
+  .board-user-arrows .ua-arrow.ua-preview{opacity:.55;}
   .board-user-arrows .ua-square{
     fill:none;
-    stroke-width:.13;
-    opacity:.85;
+    stroke-width:.1;
+    opacity:.8;
   }
   .board-hint{
     margin:10px 2px 0;
@@ -5545,7 +5547,9 @@ function uaSquareFromPoint(container, clientX, clientY, flipped){
 function uaArrowPath(a, b){
   const dx = b.x - a.x, dy = b.y - a.y;
   const adx = Math.abs(dx), ady = Math.abs(dy);
-  const trim = 0.30;                       // stop short so the head sits clear of the piece
+  /* The head is anchored at its tip, so this is where the point itself
+     lands: just inside the destination square, clear of the glyph. */
+  const trim = 0.22;
 
   if ((adx === 1 && ady === 2) || (adx === 2 && ady === 1)){
     const corner = adx > ady ? { x:b.x, y:a.y } : { x:a.x, y:b.y };
@@ -5580,9 +5584,9 @@ function paintUserArrows(container){
   const used = {};
   list.forEach(sh => { if (sh.from !== sh.to) used[sh.color] = true; });
   const markers = Object.keys(used).map(c =>
-    `<marker id="${uid}-${c}" viewBox="0 0 10 10" refX="6.2" refY="5"
-       markerWidth="3.1" markerHeight="3.1" orient="auto-start-reverse">
-       <path d="M0,1 L9,5 L0,9 z" fill="${UA_COLORS[c]}"/></marker>`).join('');
+    `<marker id="${uid}-${c}" viewBox="0 0 10 10" refX="9" refY="5"
+       markerWidth="4.6" markerHeight="4.6" orient="auto-start-reverse">
+       <path d="M0.5,0.6 L9,5 L0.5,9.4 L2.2,5 z" fill="${UA_COLORS[c]}"/></marker>`).join('');
   if (markers){
     const defs = document.createElementNS(NS, 'defs');
     defs.innerHTML = markers;
