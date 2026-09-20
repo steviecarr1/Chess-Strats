@@ -5552,9 +5552,21 @@ function movesFromPgn(pgn){
 /* "Checkmate — White wins." is the tallest thing in the row and repeats
    what the result already says. Compress it to the fact you don't have. */
 function rowResultShort(g){
+  /* Imported games keep their original PGN header block ([White "..."],
+     [BlackElo "218"], etc.) inside `g.pgn` — bot games don't, since that
+     Chess instance never had headers set. Strip header lines FIRST: the
+     token filter below only removes move-number and result tokens, so on
+     an imported game every header word ("[BlackElo", "\"218\"]", ...) was
+     getting counted as if it were a move, inflating "mate in 8" into
+     "mate in 22". This is computed fresh from the stored PGN on every
+     render rather than saved anywhere, so fixing it here is retroactive —
+     every past imported game is fixed the next time its row renders. */
   const moveCount = g.pgn
-    ? Math.max(1, Math.ceil(g.pgn.replace(/\{[^}]*\}/g, '').trim().split(/\s+/)
-        .filter(t => !/^\d+\.$/.test(t) && !/^(1-0|0-1|1\/2-1\/2|\*)$/.test(t)).length / 2))
+    ? Math.max(1, Math.ceil(g.pgn
+        .replace(/\{[^}]*\}/g, '')
+        .replace(/^\s*\[.*\]\s*$/gm, '')
+        .trim().split(/\s+/)
+        .filter(t => t && !/^\d+\.$/.test(t) && !/^(1-0|0-1|1\/2-1\/2|\*)$/.test(t)).length / 2))
     : null;
   const txt = g.resultText || '';
   const outcome = resolveOutcome(g);
@@ -8884,7 +8896,19 @@ async function runSelfTests(){
       [{ resultText:'Checkmate — Black wins.', playerColor:'w', pgn:'1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7#' }, /^mated on 4$/],
       [{ resultText:'Draw by stalemate.', playerColor:'w', pgn:'1. e4' }, /^stalemate$/],
       [{ resultText:'White resigns.', playerColor:'w', pgn:'1. e4 e5' }, /^resigned on 1$/],
-      [{ resultText:'Checkmate — White wins.', playerColor:'w' }, /^checkmate$/]
+      [{ resultText:'Checkmate — White wins.', playerColor:'w' }, /^checkmate$/],
+      /* Regression: an IMPORTED game's PGN keeps its header block
+         ([White "..."], [BlackElo "218"], ...) — those tag lines must not
+         get counted as moves. This 8-move mate previously came out as
+         "mate in 22" because every header word was tokenised right along
+         with the moves. */
+      [{ resultText:'Checkmate — White wins.', playerColor:'w', imported:true, pgn:
+        '[Event "Live Chess"]\n[Site "Chess.com"]\n[Date "2026.09.19"]\n[Round "-"]\n' +
+        '[White "steviec0102"]\n[Black "BlunderBossDUI"]\n[Result "1-0"]\n' +
+        '[WhiteElo "601"]\n[BlackElo "218"]\n[TimeControl "600"]\n' +
+        '[Termination "steviec0102 won by checkmate"]\n\n' +
+        '1. e4 e5 2. Bc4 d6 3. d3 h6 4. Qh5 Qg5 5. Qxf7+ Kd8 6. Bxg5+ Be7 7. Bb5 Bxg5 8. Qe8# 1-0'
+      }, /^mate in 8$/]
     ];
     const bad = cases
       .map(([g, re]) => [g.resultText, rowResultShort(g), re])
