@@ -2257,6 +2257,12 @@
     color:var(--ivory-dim);
     opacity:.75;
   }
+  /* Show the instructions for whichever input the device actually has. */
+  .board-hint .hint-touch{display:none;}
+  @media (hover:none) and (pointer:coarse){
+    .board-hint .hint-mouse{display:none;}
+    .board-hint .hint-touch{display:inline;}
+  }
   .board-hint kbd{
     font-family:inherit;
     font-size:.72rem;
@@ -2268,6 +2274,17 @@
   /* Let a vertical swipe still scroll the page, but stop the browser from
      hijacking a press-and-drag on the board as a pan/zoom gesture. */
   .board{touch-action:pan-y;}
+  /* iOS treats a long-press as "select this text" and pops up the
+     Copy / Look Up menu — which is exactly the gesture used to draw an
+     arrow on a phone. Nothing on the board is text worth selecting, so
+     switch selection and the callout off for the board and everything in it.
+     The -webkit- prefix is the one Safari actually honours. */
+  .board, .board *{
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none;
+    -webkit-tap-highlight-color:transparent;
+  }
 
   .replay-grid .eval-bar{width:18px;}
   @media (max-width:700px){
@@ -2390,9 +2407,12 @@
           </div>
         </div>
 
-        <p class="board-hint">Right-click and drag on the board to draw an arrow, right-click a
+        <p class="board-hint">
+          <span class="hint-mouse">Right-click and drag on the board to draw an arrow, right-click a
           square to ring it. Hold <kbd>Shift</kbd>, <kbd>Alt</kbd> or <kbd>Ctrl</kbd> while you
-          draw for red, blue or orange. On a phone, press and hold, then drag. Left-click clears.</p>
+          draw for red, blue or orange. Left-click clears.</span>
+          <span class="hint-touch">Press and hold a square, then drag to draw an arrow. Hold and
+          let go without moving to ring the square. Tap the board to clear.</span></p>
 
       </div>
 
@@ -5665,6 +5685,23 @@ function bindUserArrows(container){
   // Right-click is the draw gesture, so the browser menu has to stay shut.
   container.addEventListener('contextmenu', e => e.preventDefault());
 
+  /* The CSS already switches selection off, but older iOS versions still
+     start one on a long-press; refuse it here too. */
+  container.addEventListener('selectstart', e => e.preventDefault());
+
+  /* Safari ignores preventDefault() on pointermove for scrolling, so once an
+     arrow is being drawn, stop the page moving under your finger here. */
+  container.addEventListener('touchmove', (e) => {
+    if (drag && drag.touch && e.cancelable) e.preventDefault();
+  }, { passive:false });
+
+  const dropSelection = () => {
+    try {
+      const sel = window.getSelection && window.getSelection();
+      if (sel && sel.rangeCount) sel.removeAllRanges();
+    } catch(_){}
+  };
+
   container.addEventListener('pointerdown', (e) => {
     const st = uaState(container);
 
@@ -5680,6 +5717,7 @@ function bindUserArrows(container){
         drag = { from, to:from, color:'green', id:e.pointerId, touch:true };
         st.preview = { from, to:from, color:'green', preview:true };
         container.__uaSuppressClick = true;      // don't also select the piece
+        dropSelection();                         // in case iOS got one started anyway
         try { if (navigator.vibrate) navigator.vibrate(12); } catch(_){}
         paintUserArrows(container);
       }, 420);
@@ -5735,6 +5773,7 @@ function bindUserArrows(container){
     st.preview = null;
     if (!cancelled) uaToggleShape(st, d.from, d.to, d.color);
     paintUserArrows(container);
+    if (d.touch) dropSelection();
 
     if (d.touch){
       // Release the click block shortly after, in case no click ever lands.
