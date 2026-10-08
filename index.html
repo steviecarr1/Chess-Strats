@@ -2148,6 +2148,10 @@
     pointer-events:none;
   }
   .eval-num.ahead{color:var(--felt-950);}
+  /* Playing Black: White's light share hangs from the top, so the dark
+     area at your (bottom) end is Black's share. */
+  .eval-bar.flipped .eval-fill{top:0;bottom:auto;}
+  .eval-bar.flipped .eval-num{color:#e6d5b8;}
   @media (max-width:700px){
     .board-with-eval{gap:7px;}
     .eval-bar{width:11px;border-radius:6px;}
@@ -3721,10 +3725,13 @@ function paintEvalBar(cpWhite, mateIn){
     const pawns = cp / 100;
     label = (pawns > 0 ? '+' : '') + pawns.toFixed(1);
   }
-  // The bar is drawn from the bottom in White's favour, and flipped with
-  // the board so your own side is always the near end.
+  // The light fill is always White's share. It grows from the bottom when
+  // you play White and hangs from the top when you play Black, so your own
+  // side's colour is always at the near end.
   const youAreBlack = playerColor === 'b';
-  fill.style.height = (youAreBlack ? 100 - pct : pct) + '%';
+  fill.style.height = pct + '%';
+  const bar = document.getElementById('evalBar');
+  if (bar) bar.classList.toggle('flipped', youAreBlack);
   num.textContent = label;
   num.classList.toggle('ahead', (youAreBlack ? -cpWhite : cpWhite) > 0);
 }
@@ -9575,13 +9582,16 @@ async function runSelfTests(){
       paintEvalBar(0, 3);
       if (num.textContent !== 'M3') return 'mate label wrong: ' + num.textContent;
 
-      // Playing Black flips the bar so your own side is the near end.
-      playerColor = 'w'; paintEvalBar(600, null);
-      const asWhite = parseFloat(fill.style.height);
-      playerColor = 'b'; paintEvalBar(600, null);
-      const asBlack = parseFloat(fill.style.height);
-      if (Math.abs((asWhite + asBlack) - 100) > 1)
-        return 'bar does not flip for Black: ' + asWhite + '/' + asBlack;
+      // Playing Black flips the bar: the light (White) share stays the same
+      // size but hangs from the top, leaving Black's dark share at the bottom.
+      const bar = document.getElementById('evalBar');
+      playerColor = 'b'; paintEvalBar(-900, null);
+      const whiteShare = parseFloat(fill.style.height);
+      if (!(whiteShare < 20)) return 'Black winning but White share is ' + whiteShare;
+      if (!bar.classList.contains('flipped')) return 'bar not flipped for Black';
+      if (getComputedStyle(fill).top !== '0px') return 'White share not anchored to top for Black';
+      playerColor = 'w'; paintEvalBar(-900, null);
+      if (bar.classList.contains('flipped')) return 'bar still flipped for White';
       return true;
     } finally {
       playerColor = wasColor;
