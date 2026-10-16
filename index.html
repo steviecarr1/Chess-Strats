@@ -1045,6 +1045,19 @@
   .replay-controls button:hover:not(:disabled){background:var(--felt-700);}
   .replay-controls button:disabled{opacity:.4;cursor:not-allowed;}
 
+  .sandbox-bar{
+    margin-top:10px;padding:10px 12px;
+    border:1px dashed var(--brass);border-radius:var(--radius);
+    background:var(--felt-950);
+  }
+  .sandbox-bar[hidden]{display:none;}
+  .sandbox-line{font-size:.88rem;color:var(--ivory);margin-bottom:8px;word-break:break-word;}
+  .sandbox-line strong{display:block;color:var(--brass-bright);font-size:.75rem;
+    letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px;}
+  .sandbox-actions{display:flex;gap:8px;}
+  .sandbox-actions .btn{flex:1;}
+  .replay-note.sandbox-note{border-left-color:var(--brass);}
+
   .replay-ply{
     text-align:center;
     font-family:'Fraunces',serif;
@@ -3130,7 +3143,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-10-07a · eval bar fixed for Black';
+const BUILD = '2026-10-15a · analysis what-if moves + reset';
 const REVIEW_VERSION = 3;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -6342,6 +6355,13 @@ function buildReplayPanel(rec){
           <button data-act="next">▶</button>
           <button data-act="end">⏭</button>
         </div>
+        <div class="sandbox-bar" id="rbsandbox-${rec.id}" hidden>
+          <div class="sandbox-line" id="rbsbline-${rec.id}"></div>
+          <div class="sandbox-actions">
+            <button type="button" class="btn" data-sb="undo">Undo move</button>
+            <button type="button" class="btn" data-sb="reset">Reset position</button>
+          </div>
+        </div>
         <div class="replay-ply" id="rbply-${rec.id}"></div>
         <div class="replay-note" id="rbnote-${rec.id}"></div>
       </div>
@@ -6359,10 +6379,27 @@ function buildReplayPanel(rec){
     btn.addEventListener('click', () => {
       const st = replayState[rec.id];
       const act = btn.dataset.act;
+      st.sandbox = null;
       if (act === 'start') st.ply = 0;
       if (act === 'prev') st.ply = Math.max(0, st.ply - 1);
       if (act === 'next') st.ply = Math.min(st.moves.length, st.ply + 1);
       if (act === 'end') st.ply = st.moves.length;
+      updateReplay(rec.id);
+    });
+  });
+
+  body.querySelectorAll('[data-sb]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const st = replayState[rec.id];
+      if (!st || !st.sandbox) return;
+      if (btn.dataset.sb === 'reset'){
+        st.sandbox = null;                       // back to the game position
+      } else {
+        st.sandbox.chess.undo();
+        st.sandbox.line.pop();
+        st.sandbox.selected = null; st.sandbox.targets = [];
+        if (!st.sandbox.line.length) st.sandbox = null;
+      }
       updateReplay(rec.id);
     });
   });
@@ -6374,6 +6411,7 @@ function buildReplayPanel(rec){
 
   body.querySelectorAll('.mvbtn').forEach(btn => {
     btn.addEventListener('click', () => {
+      replayState[rec.id].sandbox = null;
       replayState[rec.id].ply = parseInt(btn.dataset.ply, 10);
       updateReplay(rec.id);
     });
@@ -6389,6 +6427,11 @@ function updateReplay(gameId){
   const st = replayState[gameId];
   if (!st) return;
 
+  const sbBar = document.getElementById('rbsandbox-' + gameId);
+  if (st.sandbox){ renderSandbox(gameId); return; }
+  if (sbBar) sbBar.hidden = true;
+  st.sbToken = (st.sbToken || 0) + 1;            // drop any sandbox eval still running
+
   const temp = new Chess();
   for (let i = 0; i < st.ply; i++){
     temp.move(st.moves[i].san);
@@ -6396,13 +6439,13 @@ function updateReplay(gameId){
   const last = st.ply > 0 ? st.moves[st.ply - 1] : null;
   const cls = st.ply > 0 ? classifyReplayMove(st, st.ply) : null;
   const boardEl = document.getElementById('rbboard-' + gameId);
-  renderReplayBoard(
-    boardEl,
-    temp,
-    st.flipped,
-    last ? { from: last.from, to: last.to } : null,
-    cls && last ? { severity: cls.severity, square: last.to } : null
-  );
+  renderChessBoard(boardEl, temp, {
+    flipped: st.flipped,
+    interactive: true,
+    lastMove: last ? { from: last.from, to: last.to } : null,
+    marks: cls && last ? { ['cls-' + cls.severity]: last.to } : null,
+    onSquareClick: sq => onReplaySquareClick(gameId, sq)
+  });
 
   /* On a flagged move, show what should have been played instead. */
   clearBoardArrows(boardEl);
@@ -6443,7 +6486,7 @@ function updateReplay(gameId){
     note.innerHTML = `<strong>${moment.color} — ${moment.severity} (${moment.san})</strong>` +
       `The evaluation swung about ${moment.magnitude} centipawns against ${moment.color} here.`;
   } else if (st.ply === 0){
-    note.textContent = 'Step through the game with the arrows, or jump straight to any move. Flagged mistakes are outlined in red.';
+    note.textContent = 'Step through the game with the arrows, or jump straight to any move. Flagged mistakes are outlined in red. Tap a piece to try your own moves from any position.';
   } else if (st.hasAnnotations){
     note.textContent = 'No major evaluation swing flagged on this move.';
   } else {
@@ -6462,6 +6505,160 @@ function updateReplay(gameId){
     ctr.querySelector('[data-act="next"]').disabled = st.ply === st.moves.length;
     ctr.querySelector('[data-act="end"]').disabled = st.ply === st.moves.length;
   }
+}
+
+/* ============================================================
+   WHAT-IF SANDBOX
+   Tap a piece on the Analysis board to try a different move from that
+   point in the game. Moves are legal moves for whichever side is to
+   move, so you can play out both sides of an idea. The engine reports
+   the eval and its best reply after each move. Reset puts the board
+   back to the game position you started from; the game itself is never
+   changed.
+   ============================================================ */
+
+function replayPositionAt(st){
+  const g = new Chess();
+  for (let i = 0; i < st.ply; i++) g.move(st.moves[i].san);
+  return g;
+}
+
+function onReplaySquareClick(gameId, sq){
+  const st = replayState[gameId];
+  if (!st) return;
+  if (!st.sandbox){
+    const g = replayPositionAt(st);
+    const piece = g.get(sq);
+    if (!piece || piece.color !== g.turn()) return;   // nothing of the side to move here
+    st.sandbox = { chess: g, startPly: st.ply, line: [], selected: null, targets: [], lastMove: null };
+  }
+  const sb = st.sandbox;
+  const g = sb.chess;
+
+  if (sb.selected){
+    const target = sb.targets.find(t => t.to === sq);
+    if (target){
+      const mv = g.move({ from: sb.selected, to: sq,
+        promotion: target.flags.includes('p') ? 'q' : undefined });   // auto-queen
+      sb.selected = null; sb.targets = [];
+      if (mv){ sb.line.push(mv.san); sb.lastMove = { from: mv.from, to: mv.to }; }
+      updateReplay(gameId);
+      return;
+    }
+  }
+  const piece = g.get(sq);
+  if (piece && piece.color === g.turn() && sb.selected !== sq){
+    sb.selected = sq;
+    sb.targets = g.moves({ square: sq, verbose: true });
+  } else {
+    sb.selected = null; sb.targets = [];
+  }
+  /* Picked a piece and put it back down without moving: leave the sandbox. */
+  if (!sb.line.length && !sb.selected){ st.sandbox = null; }
+  updateReplay(gameId);
+}
+
+function renderSandbox(gameId){
+  const st = replayState[gameId];
+  const sb = st.sandbox;
+  const g = sb.chess;
+  const boardEl = document.getElementById('rbboard-' + gameId);
+
+  renderChessBoard(boardEl, g, {
+    flipped: st.flipped,
+    interactive: true,
+    selected: sb.selected,
+    targets: sb.targets,
+    lastMove: sb.lastMove,
+    onSquareClick: sq => onReplaySquareClick(gameId, sq)
+  });
+  clearBoardArrows(boardEl);
+
+  /* The line you've tried, numbered from where it left the game. */
+  const bar = document.getElementById('rbsandbox-' + gameId);
+  const lineEl = document.getElementById('rbsbline-' + gameId);
+  if (bar) bar.hidden = false;
+  if (lineEl){
+    let num = Math.floor(sb.startPly / 2) + 1;
+    let whiteToMove = sb.startPly % 2 === 0;
+    const parts = [];
+    sb.line.forEach((san, i) => {
+      if (whiteToMove) parts.push(num + '. ' + san);
+      else parts.push((i === 0 ? num + '... ' : '') + san);
+      if (!whiteToMove) num++;
+      whiteToMove = !whiteToMove;
+    });
+    lineEl.innerHTML = '<strong>What-if line</strong>' +
+      (parts.length ? escapeHtml(parts.join(' ')) : 'Pick a square to move to.');
+  }
+  const undoBtn = bar && bar.querySelector('[data-sb="undo"]');
+  if (undoBtn) undoBtn.disabled = !sb.line.length;
+
+  const plyEl = document.getElementById('rbply-' + gameId);
+  if (plyEl){
+    plyEl.innerHTML = `Exploring from ${sb.startPly === 0 ? 'the start' : 'move ' + Math.ceil(sb.startPly / 2)}` +
+      ` &nbsp;·&nbsp; ${g.turn() === 'w' ? 'White' : 'Black'} to move`;
+  }
+
+  const movesEl = document.getElementById('rbmoves-' + gameId);
+  if (movesEl) movesEl.querySelectorAll('.mvbtn').forEach(b => {
+    b.classList.toggle('current', parseInt(b.dataset.ply, 10) === sb.startPly);
+  });
+  const ctr = document.querySelector('#accbody-' + gameId + ' .replay-controls');
+  if (ctr) ctr.querySelectorAll('button').forEach(b => { b.disabled = false; });
+
+  const note = document.getElementById('rbnote-' + gameId);
+  note.className = 'replay-note sandbox-note';
+
+  if (!sb.line.length){
+    note.textContent = 'Tap a highlighted square to play the move. You can play both sides; the engine will weigh in after each move.';
+    return;
+  }
+  if (g.game_over()){
+    if (g.in_checkmate()){
+      const winnerWhite = g.turn() === 'b';
+      paintReviewEval(gameId, 0, winnerWhite ? 1 : -1);
+      note.innerHTML = `<strong>Checkmate — ${winnerWhite ? 'White' : 'Black'} wins.</strong>That line ends the game.`;
+    } else {
+      paintReviewEval(gameId, 0, null);
+      note.innerHTML = '<strong>Draw.</strong>This line ends in a draw.';
+    }
+    return;
+  }
+
+  note.innerHTML = '<strong>Engine is thinking…</strong>';
+  const token = st.sbToken = (st.sbToken || 0) + 1;
+  const fen = g.fen();
+  const sign = g.turn() === 'w' ? 1 : -1;
+  loadEngine().then(engine => engine && engine.analyse(fen, { depth: 14, timeout: 6000 }))
+    .then(res => {
+      if (!res || token !== st.sbToken || !st.sandbox || st.sandbox.chess.fen() !== fen) return;
+      const mate = (res.mateIn === null || res.mateIn === undefined) ? null : res.mateIn * sign;
+      paintReviewEval(gameId, (res.scoreCp || 0) * sign, mate);
+
+      let evalTxt;
+      if (mate !== null) evalTxt = (mate > 0 ? 'White' : 'Black') + ' mates in ' + Math.abs(mate);
+      else if (res.scoreCp === null) evalTxt = 'eval unknown';
+      else {
+        const p = (res.scoreCp * sign) / 100;
+        evalTxt = 'eval ' + (p >= 0 ? '+' : '') + p.toFixed(2);
+      }
+      let bestTxt = '';
+      if (res.bestMove){
+        const probe = new Chess(fen);
+        const mv = probe.move(uciToMoveObj(res.bestMove));
+        if (mv){
+          bestTxt = ` Best for ${g.turn() === 'w' ? 'White' : 'Black'}: <b>${escapeHtml(mv.san)}</b> (green arrow).`;
+          clearBoardArrows(boardEl);
+          drawBoardArrow(boardEl, mv.from, mv.to, st.flipped, 'best');
+        }
+      }
+      note.innerHTML = `<strong>${evalTxt}</strong>${bestTxt}`;
+    })
+    .catch(() => {
+      if (token === st.sbToken) note.innerHTML = '<strong>Engine unavailable.</strong>You can still move pieces around.';
+    })
+    .finally(() => { engineConfigured = null; });  // let the bot reapply its own settings
 }
 
 /* ============================================================
