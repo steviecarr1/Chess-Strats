@@ -2221,7 +2221,7 @@
   .stat.stat-great b{color:#5a8fd6;}
 
   /* Review arrows and rings */
-  .board-arrows path.rv-arrow{fill:none;stroke-width:.2;stroke-linecap:round;stroke-linejoin:round;opacity:.88;}
+  .board-arrows path.rv-arrow{fill:none;stroke-width:.11;stroke-linecap:round;stroke-linejoin:round;opacity:.85;}
   .board-arrows .arrow-threat{stroke:#f2a33a;color:#f2a33a;}
   .board-arrows .arrow-refute{stroke:#d9483b;color:#d9483b;opacity:.75;}
   .board-arrows path.arrow-best{stroke:#7fb342;color:#7fb342;}
@@ -2287,7 +2287,7 @@
     overflow:visible;
   }
   .board-arrows .arrow{
-    stroke-width:.17;
+    stroke-width:.11;
     stroke-linecap:round;
     opacity:.92;
   }
@@ -3199,7 +3199,7 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-10-16a · Stockfish 19 review, chess.com-style grades + arrows';
+const BUILD = '2026-10-16b · slimmer review arrows';
 const REVIEW_VERSION = 4;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
@@ -5627,8 +5627,8 @@ function drawBoardArrow(boardEl, from, to, flipped, tone){
   const id = 'ah-' + tone + '-' + Math.random().toString(36).slice(2, 7);
   const defs = document.createElementNS(NS, 'defs');
   defs.innerHTML = `<marker id="${id}" viewBox="0 0 10 10" refX="7" refY="5"
-      markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-      <path d="M0,1 L9,5 L0,9 z" fill="currentColor"/></marker>`;
+      markerWidth="3.8" markerHeight="3.8" orient="auto-start-reverse">
+      <path d="M0.5,1.4 L9.2,5 L0.5,8.6 L2.6,5 z" fill="currentColor"/></marker>`;
   svg.appendChild(defs);
 
   const line = document.createElementNS(NS, 'line');
@@ -6017,8 +6017,8 @@ function drawReviewArrow(boardEl, from, to, flipped, tone){
   const fill = { best:'#7fb342', threat:'#f2a33a', refute:'#d9483b' }[tone] || '#f2a33a';
   const defs = document.createElementNS(NS, 'defs');
   defs.innerHTML = `<marker id="${id}" viewBox="0 0 10 10" refX="8.6" refY="5"
-      markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse">
-      <path d="M0.5,0.6 L9,5 L0.5,9.4 L2.2,5 z" fill="${fill}"/></marker>`;
+      markerWidth="3.8" markerHeight="3.8" orient="auto-start-reverse">
+      <path d="M0.5,1.4 L9.2,5 L0.5,8.6 L2.6,5 z" fill="${fill}"/></marker>`;
   svg.appendChild(defs);
   const path = document.createElementNS(NS, 'path');
   path.setAttribute('d', uaArrowPath(a, b));
