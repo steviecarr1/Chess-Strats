@@ -1,12 +1,15 @@
 /* Endgame Study — service worker
-   Caches the app shell plus the two CDN scripts (chess.js and Stockfish)
+   Caches the app shell, the CDN scripts (chess.js, Stockfish 10 for the bots)
+   and the bundled Stockfish 19 analysis engine
    so the whole trainer works offline after the first visit. */
 
-const CACHE = 'endgame-study-v1';
+const CACHE = 'endgame-study-v2';
 
 const SHELL = [
   './',
   './index.html',
+  './engine/stockfish-19-lite-single.js',
+  './engine/stockfish-19-lite-single.wasm',
   'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js'
 ];

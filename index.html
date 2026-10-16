@@ -2175,6 +2175,62 @@
   }
 
 
+  /* ===== Move-grade badges (chess.com-style) ===== */
+  .mv-badge{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--badge);
+    box-shadow:0 1px 3px rgba(0,0,0,.45);
+    flex:none;
+  }
+  .mv-badge svg{width:78%;height:78%;display:block;}
+  .mv-badge.on-board{
+    position:absolute;top:-9%;right:-9%;
+    width:46%;height:46%;max-width:34px;max-height:34px;min-width:18px;min-height:18px;
+    z-index:6;pointer-events:none;
+    border:2px solid rgba(255,255,255,.9);
+  }
+  .mv-badge.on-board.edge-t{top:3%;}
+  .mv-badge.on-board.edge-r{right:3%;}
+  .mv-badge.inline{width:20px;height:20px;vertical-align:-5px;margin-right:4px;}
+  .mv-badge.in-list{width:14px;height:14px;margin-right:4px;vertical-align:-2px;box-shadow:none;}
+  .sq.rv-has-badge{z-index:5;}
+  .sq.rv-tint::before{
+    content:'';position:absolute;inset:0;z-index:1;pointer-events:none;
+    background:var(--tint);opacity:.48;
+  }
+  .rv-callout{
+    position:absolute;left:50%;bottom:104%;transform:translateX(-50%);
+    z-index:7;pointer-events:none;white-space:nowrap;
+    padding:3px 10px;border-radius:999px;
+    background:#fff;color:var(--badge);
+    font:800 .78rem/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
+    box-shadow:0 3px 10px rgba(0,0,0,.45);
+    animation:rvPop .35s cubic-bezier(.3,1.6,.5,1) both;
+  }
+  .rv-callout.below{bottom:auto;top:104%;}
+  @keyframes rvPop{from{transform:translateX(-50%) scale(.4);opacity:0}to{transform:translateX(-50%) scale(1);opacity:1}}
+  @media (prefers-reduced-motion:reduce){.rv-callout{animation:none;}}
+  .replay-note .note-eval{float:right;font-family:ui-monospace,monospace;font-size:.8rem;color:var(--ivory-dim);}
+  .replay-note .threat-line{display:block;margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.12);color:#f0b45a;}
+  .replay-note.flag-great,.replay-note.flag-brilliant{border-left-color:#5a8fd6;background:linear-gradient(90deg,rgba(90,143,214,.16),transparent 70%), var(--felt-950);}
+  .replay-note.flag-brilliant{border-left-color:#21b8a6;background:linear-gradient(90deg,rgba(33,184,166,.16),transparent 70%), var(--felt-950);}
+  .replay-note.flag-miss{border-left-color:#e8604c;}
+  .replay-moves .mvbtn.sev-miss{border-color:#e8604c;}
+  .stat.stat-miss b{color:#e8604c;}
+  .stat.stat-great b{color:#5a8fd6;}
+
+  /* Review arrows and rings */
+  .board-arrows path.rv-arrow{fill:none;stroke-width:.2;stroke-linecap:round;stroke-linejoin:round;opacity:.88;}
+  .board-arrows .arrow-threat{stroke:#f2a33a;color:#f2a33a;}
+  .board-arrows .arrow-refute{stroke:#d9483b;color:#d9483b;opacity:.75;}
+  .board-arrows path.arrow-best{stroke:#7fb342;color:#7fb342;}
+  .board-arrows .rv-ring{fill:none;stroke-width:.07;}
+  .board-arrows .ring-hanging{stroke:#e8604c;fill:rgba(232,96,76,.22);}
+  .board-arrows .ring-defended{stroke:#f2a33a;fill:rgba(242,163,58,.12);stroke-dasharray:.16 .1;}
+  .board-arrows .ring-pinned{stroke:#e8604c;fill:rgba(232,96,76,.35);}
+  .board-arrows .ring-missed{stroke:#7fb342;fill:rgba(127,179,66,.25);}
+
   /* ===== Guided review: square badges, arrows, bad-move tint ===== */
   /* The same badge, on the square the move was played to. */
   .sq[class*="cls-"]::after{
@@ -3143,32 +3199,64 @@ const ENGINE_TIER = 9999;
    2. Saved reviews carry the REVIEW_VERSION they were produced under. Anything
       older is flagged in the analysis panel instead of being displayed as fact,
       because those numbers came from code that read the wrong engine line. */
-const BUILD = '2026-10-15a · analysis what-if moves + reset';
-const REVIEW_VERSION = 3;
+const BUILD = '2026-10-16a · Stockfish 19 review, chess.com-style grades + arrows';
+const REVIEW_VERSION = 4;
 
 /* ---------------- Stockfish engine (lazy-loaded, used for the top
    difficulty tier and to grade puzzle attempts accurately) --------- */
 
-let enginePromise = null;
+/* TWO ENGINES.
+   - The bots play with Stockfish 10 (asm.js from the CDN). Their whole
+     difficulty ladder was tuned against it, so it stays exactly as it was.
+   - Everything that JUDGES moves — game review, the eval bar, the what-if
+     sandbox, puzzle grading — uses Stockfish 19 Lite (WASM + NNUE), shipped
+     in /engine next to this page. It is far stronger at the same depth.
+     If it can't start (e.g. the page is running somewhere the /engine files
+     aren't served), analysis quietly falls back to Stockfish 10. */
+let enginePromise = null;            // bot engine
+let analysisEnginePromise = null;    // review / analysis engine
+const SF19_PATH = 'engine/stockfish-19-lite-single.js';
 
 function loadEngine(){
   if (enginePromise) return enginePromise;
-  enginePromise = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error('Engine took too long to start (over 60s).'));
-    }, 60000);
-    const done = (fn) => (v) => { clearTimeout(timer); fn(v); };
-    resolve = done(resolve);
-    reject = done(reject);
-
+  enginePromise = startEngine(() =>
     fetch('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js')
       .then(r => {
         if (!r.ok) throw new Error('Could not download engine (HTTP ' + r.status + ')');
         return r.text();
       })
-      .then(src => {
-        const blob = new Blob([src], { type: 'application/javascript' });
-        const worker = new Worker(URL.createObjectURL(blob));
+      .then(src => new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })))),
+    { name: 'Stockfish 10', startTimeout: 60000 });
+  enginePromise.catch(() => { enginePromise = null; });
+  return enginePromise;
+}
+
+function loadAnalysisEngine(){
+  if (analysisEnginePromise) return analysisEnginePromise;
+  analysisEnginePromise = startEngine(() => {
+      if (typeof WebAssembly !== 'object') throw new Error('No WebAssembly');
+      return new Worker(new URL(SF19_PATH, location.href).href);
+    }, { name: 'Stockfish 19', startTimeout: 25000, init: ['setoption name Hash value 32'] })
+    .catch(err => {
+      console.warn('Stockfish 19 unavailable, falling back to Stockfish 10:', err);
+      return loadEngine();
+    });
+  analysisEnginePromise.catch(() => { analysisEnginePromise = null; });
+  return analysisEnginePromise;
+}
+
+function startEngine(makeWorker, { name, startTimeout = 60000, init = [] } = {}){
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(name + ' took too long to start.'));
+    }, startTimeout);
+    const done = (fn) => (v) => { clearTimeout(timer); fn(v); };
+    resolve = done(resolve);
+    reject = done(reject);
+
+    Promise.resolve()
+      .then(makeWorker)
+      .then(worker => {
         let ready = false;
 
         /* ONE SEARCH AT A TIME.
@@ -3205,7 +3293,11 @@ function loadEngine(){
 
         worker.onmessage = (e) => {
           const line = typeof e.data === 'string' ? e.data : '';
-          if (line === 'uciok'){ worker.postMessage('isready'); return; }
+          if (line === 'uciok'){
+            init.forEach(cmd => worker.postMessage(cmd));
+            worker.postMessage('isready');
+            return;
+          }
           if (line === 'readyok'){
             if (!ready){ ready = true; resolve(api); }
             return;
@@ -3266,6 +3358,7 @@ function loadEngine(){
         };
 
         const api = {
+          name,
           getBestMove(fen, { depth = 12, movetime } = {}){
             return api.analyse(fen, { depth, movetime }).then(r => r ? r.bestMove : null);
           },
@@ -3352,8 +3445,6 @@ function loadEngine(){
       })
       .catch(reject);
   });
-  enginePromise.catch(() => { enginePromise = null; });
-  return enginePromise;
 }
 
 function uciToMoveObj(uci){
@@ -3771,7 +3862,7 @@ async function scheduleEvalUpdate(){
       }
       return;
     }
-    const engine = await loadEngine();
+    const engine = await loadAnalysisEngine();
     if (!engine || token !== evalToken) return;
     const res = await engine.analyse(game.fen(), { depth: 8, timeout: 3000 });
     if (token !== evalToken) return;                // a newer move superseded this
@@ -4081,6 +4172,7 @@ document.getElementById('newGameBtn').addEventListener('click', () => {
   loadEngine()
     .then(() => setEngineStatus(''))
     .catch(() => setEngineStatus('Engine unavailable — using the offline bot instead.'));
+  loadAnalysisEngine().catch(() => {});   // warm up the review engine in the background
 
   if (playerColor === 'b'){
     setStatus('Bot is thinking…');
@@ -4268,7 +4360,7 @@ Keep it direct, encouraging but honest, and concrete — reference actual move n
         counts: review.counts,
         openingName: review.opening ? review.opening.name : null,
         moments: review.annotations
-          .filter(a => a.severity === 'inaccuracy' || a.severity === 'mistake' || a.severity === 'blunder')
+          .filter(a => BAD_SEVERITIES.indexOf(a.severity) !== -1)
           .map(a => ({ moveNumber:a.moveNumber, san:a.san, color:a.color, colorCode:a.colorCode,
                        magnitude:a.loss, severity:a.severity }))
       });
@@ -4606,7 +4698,7 @@ async function computeBestMoveForFen(fen){
   // Prefer the real engine if it's already loaded/loadable; fall back to local search.
   try{
     const engine = await Promise.race([
-      loadEngine(),
+      loadAnalysisEngine(),
       new Promise((_, rej) => setTimeout(() => rej('timeout'), 4000))
     ]);
     const uci = await engine.getBestMove(fen, { depth: 14 });
@@ -5223,7 +5315,7 @@ function evalToMoverCp(res){
 }
 
 async function explainPuzzle(p, userUci){
-  const engine = await loadEngine();
+  const engine = await loadAnalysisEngine();
   if (!engine) return null;
 
   const bestUci = p.bestMove.from + p.bestMove.to + (p.bestMove.promotion || '');
@@ -5843,14 +5935,209 @@ function renderReplayBoard(container, chessObj, flipped, highlight, classMark){
    was played to. Everything that was already in this tab stays.
    ============================================================ */
 
-const MOVE_CLASS = {
-  book:       { label:'a book move', icon:'📖', tone:'book' },
-  best:       { label:'best',        icon:'★',  tone:'best' },
-  good:       { label:'a good move', icon:'✓',  tone:'good' },
-  inaccuracy: { label:'an inaccuracy', icon:'?!', tone:'inaccuracy' },
-  mistake:    { label:'a mistake',   icon:'?',  tone:'mistake' },
-  blunder:    { label:'a blunder',   icon:'??', tone:'blunder' }
+/* Every grade gets its own coloured badge, drawn on the square the move
+   landed on and repeated in the move list. Glyphs are SVG so they look the
+   same on every device (emoji don't). */
+const BADGE_SVG = {
+  star:  '<svg viewBox="0 0 20 20"><path d="M10 2.6l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 7.9l5-.7z" fill="#fff"/></svg>',
+  check: '<svg viewBox="0 0 20 20"><path d="M4.5 10.4l3.6 3.6 7.4-7.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  thumb: '<svg viewBox="0 0 20 20"><path d="M3.5 9h3v7.5h-3zM8 16.5V9l3-5.2c.9-.2 1.9.5 1.6 1.6L12 8.4h3.8c.9 0 1.6.8 1.4 1.7l-1.1 5.1c-.2.8-.8 1.3-1.6 1.3z" fill="#fff"/></svg>',
+  book:  '<svg viewBox="0 0 20 20"><path d="M3 5.2c2.4-.8 4.8-.6 6.4.6v10c-1.6-1.1-4-1.3-6.4-.5zM17 5.2c-2.4-.8-4.8-.6-6.4.6v10c1.6-1.1 4-1.3 6.4-.5z" fill="#fff"/></svg>',
+  arrow: '<svg viewBox="0 0 20 20"><path d="M4 10h10M10.5 5.5L15 10l-4.5 4.5" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  cross: '<svg viewBox="0 0 20 20"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>'
 };
+function badgeText(t){
+  return '<svg viewBox="0 0 20 20"><text x="10" y="14.6" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="' +
+    (t.length > 1 ? 11 : 13) + '" fill="#fff" letter-spacing="-0.6">' + t + '</text></svg>';
+}
+const MOVE_CLASS = {
+  brilliant:  { label:'brilliant',      title:'Brilliant', color:'#21b8a6', glyph: badgeText('!!'), callout:'Brilliant!!' },
+  great:      { label:'a great move',   title:'Great move', color:'#5a8fd6', glyph: badgeText('!'),  callout:'Great!' },
+  best:       { label:'best',           title:'Best',      color:'#7fb342', glyph: BADGE_SVG.star },
+  excellent:  { label:'excellent',      title:'Excellent', color:'#7fb342', glyph: BADGE_SVG.thumb },
+  good:       { label:'a good move',    title:'Good',      color:'#8fae74', glyph: BADGE_SVG.check },
+  book:       { label:'a book move',    title:'Book',      color:'#a5815a', glyph: BADGE_SVG.book },
+  forced:     { label:'forced',         title:'Forced',    color:'#8c9a8a', glyph: BADGE_SVG.arrow },
+  inaccuracy: { label:'an inaccuracy',  title:'Inaccuracy', color:'#e8b730', glyph: badgeText('?!') },
+  mistake:    { label:'a mistake',      title:'Mistake',   color:'#e58a2b', glyph: badgeText('?') },
+  miss:       { label:'a miss',         title:'Miss',      color:'#e8604c', glyph: BADGE_SVG.cross },
+  blunder:    { label:'a blunder',      title:'Blunder',   color:'#cf3528', glyph: badgeText('??') }
+};
+
+function badgeHtml(sev, extraClass){
+  const c = MOVE_CLASS[sev];
+  if (!c) return '';
+  return `<span class="mv-badge ${extraClass || ''}" style="--badge:${c.color}" title="${c.title}">${c.glyph}</span>`;
+}
+
+/* Badge in the square's corner, the square tinted in the grade's colour,
+   and — for great and brilliant moves — a callout above the piece. */
+function decorateReviewSquares(boardEl, flipped, sev, from, to){
+  const c = MOVE_CLASS[sev];
+  if (!boardEl || !c) return;
+  [from, to].forEach(sq => {
+    const el = sq && boardEl.querySelector(`[data-square="${sq}"]`);
+    if (el){ el.classList.add('rv-tint'); el.style.setProperty('--tint', c.color); }
+  });
+  const toEl = to && boardEl.querySelector(`[data-square="${to}"]`);
+  if (!toEl) return;
+  const xy = squareToXY(to, flipped);
+  const edgeTop = xy && xy.y < 1, edgeRight = xy && xy.x > 7;
+  toEl.classList.add('rv-has-badge');
+  toEl.insertAdjacentHTML('beforeend', badgeHtml(sev, 'on-board' + (edgeTop ? ' edge-t' : '') + (edgeRight ? ' edge-r' : '')));
+  if (c.callout){
+    toEl.insertAdjacentHTML('beforeend',
+      `<span class="rv-callout${edgeTop ? ' below' : ''}" style="--badge:${c.color}">${c.callout}</span>`);
+  }
+}
+
+/* ---- Review arrows: knight moves bend, everything else is straight ---- */
+function reviewArrowSvg(boardEl){
+  const NS = 'http://www.w3.org/2000/svg';
+  let svg = boardEl.querySelector('.board-arrows');
+  if (!svg){
+    svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'board-arrows');
+    svg.setAttribute('viewBox', '0 0 8 8');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    boardEl.appendChild(svg);
+  }
+  return svg;
+}
+
+function drawReviewArrow(boardEl, from, to, flipped, tone){
+  if (!boardEl || !from || !to || from === to) return;
+  const a = squareToXY(from, flipped), b = squareToXY(to, flipped);
+  if (!a || !b) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = reviewArrowSvg(boardEl);
+  const id = 'rah-' + tone + '-' + Math.random().toString(36).slice(2, 7);
+  /* Markers don't inherit colour from the line that uses them, so the
+     arrowhead gets its fill spelled out. */
+  const fill = { best:'#7fb342', threat:'#f2a33a', refute:'#d9483b' }[tone] || '#f2a33a';
+  const defs = document.createElementNS(NS, 'defs');
+  defs.innerHTML = `<marker id="${id}" viewBox="0 0 10 10" refX="8.6" refY="5"
+      markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse">
+      <path d="M0.5,0.6 L9,5 L0.5,9.4 L2.2,5 z" fill="${fill}"/></marker>`;
+  svg.appendChild(defs);
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', uaArrowPath(a, b));
+  path.setAttribute('class', 'arrow rv-arrow arrow-' + tone);
+  path.setAttribute('marker-end', 'url(#' + id + ')');
+  svg.appendChild(path);
+}
+
+function drawReviewRing(boardEl, sq, flipped, tone){
+  const a = squareToXY(sq, flipped);
+  if (!a) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = reviewArrowSvg(boardEl);
+  const rect = document.createElementNS(NS, 'rect');
+  rect.setAttribute('x', a.x - 0.5 + 0.05);
+  rect.setAttribute('y', a.y - 0.5 + 0.05);
+  rect.setAttribute('width', 0.9);
+  rect.setAttribute('height', 0.9);
+  rect.setAttribute('rx', 0.08);
+  rect.setAttribute('class', 'rv-ring ring-' + tone);
+  svg.appendChild(rect);
+}
+
+/* What does the piece that just moved now attack?
+   - Each enemy piece it hits: is it defended (they can take back) or
+     hanging (undefended, or worth more than the attacker)?
+   - Sliding pieces also look THROUGH the first enemy piece: if something
+     more valuable (or the king) sits behind it, that first piece is pinned
+     or skewered.
+   - And the moved piece itself: can it be taken, and if so can you take back? */
+function threatsFromMove(chessAfter, sq){
+  const board = chessAfter.board();
+  const { r, c } = sqToRC(sq);
+  const pc = board[r][c];
+  if (!pc) return null;
+  const me = pc.color, them = me === 'w' ? 'b' : 'w';
+  const val = PIECE_VALUE[pc.type];
+  const targets = [];
+  const addTarget = (tsq, via) => {
+    const t = board[sqToRC(tsq).r][sqToRC(tsq).c];
+    const defenders = attackersOf(board, tsq, them);
+    const tv = PIECE_VALUE[t.type];
+    targets.push({
+      square: tsq, type: t.type, via: via || null,
+      check: t.type === 'k',
+      defended: defenders.length > 0,
+      winning: t.type !== 'k' && (!defenders.length || tv > val)
+    });
+  };
+
+  const slider = { b:[[1,1],[1,-1],[-1,1],[-1,-1]], r:[[1,0],[-1,0],[0,1],[0,-1]] };
+  slider.q = slider.b.concat(slider.r);
+  if (slider[pc.type]){
+    for (const [dr, dc] of slider[pc.type]){
+      let rr = r + dr, cc = c + dc, first = null;
+      while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8){
+        const hit = board[rr][cc];
+        if (hit){
+          if (!first){
+            if (hit.color !== them) break;
+            first = { sq: rcToSq(rr, cc), pc: hit };
+            addTarget(first.sq);
+            if (hit.type === 'k') break;
+          } else {
+            /* A pawn "pinned" to a bishop isn't worth an arrow; real pins and
+               skewers are to the king or queen, or of a piece to a bigger one. */
+            if (hit.color === them && (hit.type === 'k' || PIECE_VALUE[hit.type] > PIECE_VALUE[first.pc.type])
+                && (first.pc.type !== 'p' || hit.type === 'k' || hit.type === 'q')){
+              targets.push({ square: rcToSq(rr, cc), type: hit.type, pinned: first.sq,
+                             pinnedType: first.pc.type, absolute: hit.type === 'k' });
+            }
+            break;
+          }
+        }
+        rr += dr; cc += dc;
+      }
+    }
+  } else {
+    geoAttacksFrom(board, sq).forEach(tsq => {
+      const t = board[sqToRC(tsq).r][sqToRC(tsq).c];
+      if (t && t.color === them) addTarget(tsq);
+    });
+  }
+
+  const attackers = attackersOf(board, sq, them);
+  const defenders = attackersOf(board, sq, me);
+  const self = attackers.length ? {
+    attacked: true,
+    recapturable: defenders.length > 0,
+    cheapest: attackers[0]
+  } : { attacked: false };
+
+  return { piece: pc.type, color: me, targets, self };
+}
+
+function describeThreats(th, san){
+  if (!th) return '';
+  const N = REV_PIECE;
+  const bits = [];
+  th.targets.forEach(t => {
+    if (t.pinned){
+      bits.push(t.absolute
+        ? `pins the ${N[t.pinnedType]} on ${t.pinned} to the king`
+        : `pins the ${N[t.pinnedType]} on ${t.pinned} to the ${N[t.type]} behind it`);
+    } else if (t.check){
+      bits.push('gives check');
+    } else if (t.type !== 'p' || t.winning){
+      bits.push(`attacks the ${N[t.type]} on ${t.square} ` +
+        (t.winning ? (t.defended ? '(worth more than the attacker — wins material)' : '(undefended — it can be taken for free)')
+                   : '(defended — taking it allows a recapture)'));
+    }
+  });
+  let out = bits.length ? `${san} ${bits.join('; ')}.` : '';
+  if (th.self.attacked){
+    out += (out ? ' ' : '') + `The ${N[th.piece]} itself can be taken by a ${N[th.self.cheapest.type]}` +
+      (th.self.recapturable ? ', but it\'s defended — you can recapture.' : ' and nothing defends it.');
+  }
+  return out;
+}
 
 /* Book moves aren't an engine severity — they're a fact about the opening,
    so they're detected separately and take priority in the headline. */
@@ -5858,7 +6145,7 @@ function classifyReplayMove(st, ply){
   const moment = st.map[ply];
   if (!moment) return null;
   let severity = moment.severity || 'good';
-  if (st.bookPlies && st.bookPlies.has(ply) && (severity === 'best' || severity === 'good')){
+  if (st.bookPlies && st.bookPlies.has(ply) && (severity === 'best' || severity === 'good' || severity === 'excellent')){
     severity = 'book';
   }
   return { severity, moment };
@@ -6267,6 +6554,7 @@ function buildReplayPanel(rec){
     map: momentsByPly(rec),
     hasAnnotations: !!(rec.annotations && rec.annotations.length)
   };
+  replayState[rec.id].bookPliesEarly = bookPliesFor(moves);
 
   let moveBtns = '';
   for (let i = 0; i < moves.length; i++){
@@ -6276,9 +6564,11 @@ function buildReplayPanel(rec){
     /* One red outline for all three severities meant a game with forty
        flagged moves was forty identical red boxes, which is the same as no
        signal at all. Each level now gets its own weight. */
-    const flagged = (sev === 'blunder' || sev === 'mistake' || sev === 'inaccuracy' || (ann && !sev))
+    const flagged = (BAD_SEVERITIES.indexOf(sev) !== -1 || (ann && !sev))
       ? ' flagged' + (sev ? ' sev-' + sev : '') : '';
-    moveBtns += `<button class="mvbtn${flagged}" data-ply="${i + 1}">${moves[i].san}</button>`;
+    const listSev = sev === 'best' && replayState[rec.id].bookPliesEarly && replayState[rec.id].bookPliesEarly.has(i + 1) ? 'book' : sev;
+    const showIcon = ['brilliant','great','inaccuracy','mistake','miss','blunder'].indexOf(listSev) !== -1;
+    moveBtns += `<button class="mvbtn${flagged}" data-ply="${i + 1}">${showIcon ? badgeHtml(listSev, 'in-list') : ''}${moves[i].san}</button>`;
   }
 
   /* Only in the refined theme — classic is meant to be untouched. */
@@ -6309,10 +6599,9 @@ function buildReplayPanel(rec){
   const staleHtml = staleReview ? `
     <div class="stale-note">
       <strong>These figures are from an older review.</strong>
-      They were produced before the engine-reading fix, so the accuracy and
-      error counts below are not trustworthy — that build could read the
-      engine's worst suggestion as the position's evaluation, which makes
-      every move look near-perfect. Re-run the review above to replace them.
+      They came from the old Stockfish 10 scan, before moves were graded
+      chess.com-style (great moves, misses, brilliant sacrifices). Re-run the
+      review above to get the new grades, badges and arrows.
     </div>` : '';
 
   const statsHtml = (typeof rec.accuracy === 'number') ? `
@@ -6321,6 +6610,8 @@ function buildReplayPanel(rec){
       <span class="stat stat-blunder${(rec.counts && rec.counts.blunder) ? '' : ' is-zero'}"><b>${rec.counts ? rec.counts.blunder : 0}</b>blunders</span>
       <span class="stat stat-mistake${(rec.counts && rec.counts.mistake) ? '' : ' is-zero'}"><b>${rec.counts ? rec.counts.mistake : 0}</b>mistakes</span>
       <span class="stat stat-inaccuracy${(rec.counts && rec.counts.inaccuracy) ? '' : ' is-zero'}"><b>${rec.counts ? rec.counts.inaccuracy : 0}</b>inaccuracies</span>
+      ${rec.counts && typeof rec.counts.miss === 'number' ? `<span class="stat stat-miss${rec.counts.miss ? '' : ' is-zero'}"><b>${rec.counts.miss}</b>misses</span>` : ''}
+      ${rec.counts && (rec.counts.great || rec.counts.brilliant) ? `<span class="stat stat-great">${badgeHtml(rec.counts.brilliant ? 'brilliant' : 'great', 'inline')}<b>${(rec.counts.great || 0) + (rec.counts.brilliant || 0)}</b>${rec.counts.brilliant ? 'brilliant / great' : 'great moves'}</span>` : ''}
       ${rec.openingName ? `<span class="stat opening"><b>${escapeHtml(rec.openingName)}</b>opening</span>` : ''}
     </div>` : '';
 
@@ -6442,18 +6733,41 @@ function updateReplay(gameId){
   renderChessBoard(boardEl, temp, {
     flipped: st.flipped,
     interactive: true,
-    lastMove: last ? { from: last.from, to: last.to } : null,
-    marks: cls && last ? { ['cls-' + cls.severity]: last.to } : null,
+    lastMove: last && !cls ? { from: last.from, to: last.to } : null,
     onSquareClick: sq => onReplaySquareClick(gameId, sq)
   });
-
-  /* On a flagged move, show what should have been played instead. */
   clearBoardArrows(boardEl);
-  const flagged = cls && ['inaccuracy','mistake','blunder'].indexOf(cls.severity) !== -1;
-  if (flagged && cls.moment.bestMove && last){
+  if (cls && last) decorateReviewSquares(boardEl, st.flipped, cls.severity, last.from, last.to);
+
+  /* Bad move: green arrow for what you should have played (and a ring on
+     anything it would have captured), red arrow for how they punish it.
+     Any other move: orange arrows for what the moved piece now attacks. */
+  const flagged = cls && BAD_SEVERITIES.indexOf(cls.severity) !== -1;
+  let threatText = '';
+  if (flagged && last){
     const bm = cls.moment.bestMove;
-    drawBoardArrow(boardEl, bm.slice(0, 2), bm.slice(2, 4), st.flipped, 'best');
-    drawBoardArrow(boardEl, last.from, last.to, st.flipped, cls.severity);
+    if (bm){
+      drawReviewArrow(boardEl, bm.slice(0, 2), bm.slice(2, 4), st.flipped, 'best');
+      const prev = new Chess(); for (let i = 0; i < st.ply - 1; i++) prev.move(st.moves[i].san);
+      const tgt = prev.get(bm.slice(2, 4));
+      if (tgt) drawReviewRing(boardEl, bm.slice(2, 4), st.flipped, 'missed');
+    }
+    const reply = st.map[st.ply + 1] && st.map[st.ply + 1].bestMove;
+    if (reply && !temp.game_over()) drawReviewArrow(boardEl, reply.slice(0, 2), reply.slice(2, 4), st.flipped, 'refute');
+  } else if (last && st.ply > 0){
+    const th = threatsFromMove(temp, last.to);
+    if (th){
+      th.targets.forEach(t => {
+        if (t.pinned){
+          drawReviewArrow(boardEl, last.to, t.square, st.flipped, 'threat');
+          drawReviewRing(boardEl, t.pinned, st.flipped, 'pinned');
+        } else if (t.check || t.type !== 'p' || t.winning){
+          drawReviewArrow(boardEl, last.to, t.square, st.flipped, 'threat');
+          drawReviewRing(boardEl, t.square, st.flipped, t.check ? 'hanging' : (t.winning ? 'hanging' : 'defended'));
+        }
+      });
+      threatText = describeThreats(th, last.san);
+    }
   }
 
   /* The eval bar reads white-perspective, like the one on the Play tab. */
@@ -6475,7 +6789,7 @@ function updateReplay(gameId){
 
   const note = document.getElementById('rbnote-' + gameId);
   const moment = st.map[st.ply];
-  note.className = 'replay-note' + (moment ? ' flag-' + moment.severity : '');
+  note.className = 'replay-note' + (moment ? ' flag-' + (cls ? cls.severity : moment.severity) : '');
   if (moment && moment.text){
     const evalStr = typeof moment.evalAfter === 'number'
       ? ` &nbsp;·&nbsp; eval ${(moment.evalAfter/100 >= 0 ? '+' : '')}${(moment.evalAfter/100).toFixed(1)}`
@@ -6491,6 +6805,19 @@ function updateReplay(gameId){
     note.textContent = 'No major evaluation swing flagged on this move.';
   } else {
     note.textContent = 'This game hasn\'t been analysed yet — tap "Run engine review" above to get per-move explanations.';
+  }
+  /* Lead with the grade badge, chess.com-style: "Bxe7 is a great move". */
+  if (cls && last && moment){
+    const c = MOVE_CLASS[cls.severity];
+    const head = note.querySelector('strong');
+    if (c && head){
+      head.innerHTML = badgeHtml(cls.severity, 'inline') + ` <span style="color:${c.color}">${escapeHtml(last.san)} is ${c.label}</span>` +
+        (typeof moment.evalAfter === 'number'
+          ? ` <span class="note-eval">${moment.mateAfter ? 'M' + Math.abs(moment.mateAfter) : ((moment.evalAfter >= 0 ? '+' : '') + (moment.evalAfter / 100).toFixed(1))}</span>` : '');
+    }
+  }
+  if (threatText){
+    note.insertAdjacentHTML('beforeend', `<span class="threat-line">${escapeHtml(threatText)}</span>`);
   }
 
   const movesEl = document.getElementById('rbmoves-' + gameId);
@@ -6630,7 +6957,7 @@ function renderSandbox(gameId){
   const token = st.sbToken = (st.sbToken || 0) + 1;
   const fen = g.fen();
   const sign = g.turn() === 'w' ? 1 : -1;
-  loadEngine().then(engine => engine && engine.analyse(fen, { depth: 14, timeout: 6000 }))
+  loadAnalysisEngine().then(engine => engine && engine.analyse(fen, { depth: 18, timeout: 6000 }))
     .then(res => {
       if (!res || token !== st.sbToken || !st.sandbox || st.sandbox.chess.fen() !== fen) return;
       const mate = (res.mateIn === null || res.mateIn === undefined) ? null : res.mateIn * sign;
@@ -6887,6 +7214,109 @@ function identifyOpening(sanMoves){
    assembled from what actually changed on the board.
    ============================================================ */
 
+/* ============================================================
+   CHESS.COM-STYLE GRADING
+   Moves are graded by how much they change your winning chances,
+   not by raw centipawns: dropping from +0.5 to -0.5 matters far more
+   than dropping from +9 to +8. Win% uses the same logistic curve
+   Lichess publishes; the bands below follow chess.com's categories.
+   ============================================================ */
+
+const SEVERITY_ORDER = ['brilliant','great','best','excellent','good','book','forced',
+                        'inaccuracy','mistake','miss','blunder'];
+const BAD_SEVERITIES = ['inaccuracy','mistake','miss','blunder'];
+
+function winPctFromCp(cp){
+  return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
+}
+/* White's winning chances (0..100) for an eval. A forced mate is 100/0. */
+function winPctWhite(cpWhite, mateWhite){
+  if (mateWhite !== null && mateWhite !== undefined) return mateWhite > 0 ? 100 : 0;
+  return winPctFromCp(cpWhite || 0);
+}
+
+function gradeByWinLoss(wpLoss){
+  if (wpLoss < 2)  return 'excellent';
+  if (wpLoss < 5)  return 'good';
+  if (wpLoss < 10) return 'inaccuracy';
+  if (wpLoss < 20) return 'mistake';
+  return 'blunder';
+}
+
+/* ---- Board geometry (used by sacrifice detection and threat arrows) ---- */
+const PIECE_VALUE = { p:100, n:300, b:310, r:500, q:900, k:10000 };
+
+/* sqToRC / rcToSq are defined further down (shared with the scanner). */
+
+/* Every square the piece on `sq` attacks (not "can move to": pawns attack
+   diagonally, and a slider's ray stops on the first piece it hits). */
+function geoAttacksFrom(board, sq){
+  const { r, c } = sqToRC(sq);
+  const pc = board[r][c];
+  if (!pc) return [];
+  const out = [];
+  const inB = (rr, cc) => rr >= 0 && rr < 8 && cc >= 0 && cc < 8;
+  const step = (dirs, slide) => {
+    for (const [dr, dc] of dirs){
+      let rr = r + dr, cc = c + dc;
+      while (inB(rr, cc)){
+        out.push(rcToSq(rr, cc));
+        if (!slide || board[rr][cc]) break;
+        rr += dr; cc += dc;
+      }
+    }
+  };
+  const DIAG = [[1,1],[1,-1],[-1,1],[-1,-1]], ORTH = [[1,0],[-1,0],[0,1],[0,-1]];
+  switch (pc.type){
+    case 'p': {
+      const dr = pc.color === 'w' ? -1 : 1;
+      [[dr,1],[dr,-1]].forEach(([a,b]) => { if (inB(r+a, c+b)) out.push(rcToSq(r+a, c+b)); });
+      break;
+    }
+    case 'n': step([[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]], false); break;
+    case 'b': step(DIAG, true); break;
+    case 'r': step(ORTH, true); break;
+    case 'q': step(DIAG.concat(ORTH), true); break;
+    case 'k': step(DIAG.concat(ORTH), false); break;
+  }
+  return out;
+}
+
+/* Pieces of `color` that attack `sq`, cheapest first. */
+function attackersOf(board, sq, color){
+  const list = [];
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++){
+    const pc = board[r][c];
+    if (!pc || pc.color !== color) continue;
+    const from = rcToSq(r, c);
+    if (geoAttacksFrom(board, from).indexOf(sq) !== -1) list.push({ square: from, type: pc.type, value: PIECE_VALUE[pc.type] });
+  }
+  return list.sort((a, b) => a.value - b.value);
+}
+
+/* After `mv` (verbose chess.js move), did the mover leave real material
+   en prise on purpose? Used for "brilliant". Rough static exchange:
+   taken by the cheapest attacker, retaken if defended. */
+function isSacrifice(fenBefore, mv){
+  const g = new Chess(fenBefore);
+  const played = g.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
+  if (!played) return false;
+  const board = g.board();
+  const { r, c } = sqToRC(played.to);
+  const pc = board[r][c];
+  if (!pc || pc.type === 'p' || pc.type === 'k') return false;
+  const value = PIECE_VALUE[pc.type];
+  const gained = played.captured ? PIECE_VALUE[played.captured] : 0;
+  const enemy = played.color === 'w' ? 'b' : 'w';
+  // Only legal captures count (a pinned attacker can't take).
+  const takers = g.moves({ verbose: true }).filter(m => m.to === played.to)
+    .map(m => PIECE_VALUE[m.piece]).sort((a, b) => a - b);
+  if (!takers.length) return false;
+  const defended = attackersOf(board, played.to, played.color).length > 0;
+  const net = defended ? value - takers[0] - gained : value - gained;
+  return net >= 200 && attackersOf(board, played.to, enemy).length > 0;
+}
+
 function classifyLoss(loss){
   if (loss >= 300) return 'blunder';
   if (loss >= 150) return 'mistake';
@@ -6946,13 +7376,44 @@ function lossPhrase(loss, beforeCp, afterCp){
   return 'cost about ' + (loss / 100).toFixed(1) + ' pawns of advantage';
 }
 
-function explainMove(fenBefore, playedUci, bestUci, loss, severity, phase, beforeCp, afterCp){
+function explainMove(fenBefore, playedUci, bestUci, loss, severity, phase, beforeCp, afterCp, extra){
   const before = new Chess(fenBefore);
   const played = describeMove(before, playedUci);
   const best = describeMove(before, bestUci);
   const names = { p:'pawn', n:'knight', b:'bishop', r:'rook', q:'queen', k:'king' };
+  const x = extra || {};
+  const san = played ? played.san : 'This';
 
   const parts = [];
+
+  if (severity === 'forced'){
+    return `${san} was the only legal move.`;
+  }
+  if (severity === 'brilliant'){
+    parts.push(`${san} is brilliant — it leaves the ${played ? played.piece : 'piece'} where it can be taken, on purpose, and the engine confirms the sacrifice works.`);
+    if (played && played.detail.length) parts.push(`It ${played.detail.join(' and ')}.`);
+    return parts.join(' ');
+  }
+  if (severity === 'great'){
+    const second = x.secondUci ? describeMove(before, x.secondUci) : null;
+    parts.push(x.mateForMover
+      ? `${san} is a great move — it's the move that forces checkmate.`
+      : `${san} is a great move — the only move here that keeps your position together.`);
+    if (second) parts.push(`Even the next-best try, ${second.san}, would have given a lot of it back.`);
+    if (played && played.detail.length) parts.push(`It ${played.detail.join(' and ')}.`);
+    return parts.join(' ');
+  }
+  if (severity === 'excellent'){
+    return `${san} is excellent — practically as strong as the engine's top choice`
+      + (best && best.san !== san ? ` (${best.san}).` : '.');
+  }
+  if (severity === 'miss'){
+    parts.push(x.mateForMover
+      ? `${san} is a miss — you had a forced checkmate here and let it go.`
+      : `${san} is a miss — your opponent's last move gave you a chance, and this lets it slip.`);
+    if (best) parts.push(`${best.san} was the move` + (best.detail.length ? ` — it ${best.detail.join(' and ')}.` : '.'));
+    return parts.join(' ');
+  }
 
   if (severity === 'best'){
     parts.push(`${played ? played.san : 'This'} was the engine's top choice.`);
@@ -7000,10 +7461,14 @@ function explainMove(fenBefore, playedUci, bestUci, loss, severity, phase, befor
 }
 
 async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, botEloVal, onProgress, styleNameForReview, outcomeWordForReview){
-  const engine = await loadEngine();
+  const engine = await loadAnalysisEngine();
   engineConfigured = null; // analysis resets engine options; force the bot to reapply
-  const DEPTH = (typeof navigator !== 'undefined' &&
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) ? 8 : 10;
+  const mobile = typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  /* Stockfish 19 is fast enough to look much deeper. The old engine is only
+     used here if 19 couldn't start, and keeps its old, shallower depth. */
+  const strong = engine && engine.name === 'Stockfish 19';
+  const DEPTH = strong ? (mobile ? 14 : 17) : (mobile ? 8 : 10);
 
   const positions = [];
   const temp = new Chess();
@@ -7025,9 +7490,9 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
     // `bestmove` line for them, which would hang the whole run — so score
     // them directly and skip the engine.
     if (probe.game_over()){
-      let cpWhite = 0;
-      if (probe.in_checkmate()) cpWhite = (stm === 'w') ? -1200 : 1200;
-      evals.push({ fen, bestMove: null, cpWhite });
+      let cpWhite = 0, mateWhite = null;
+      if (probe.in_checkmate()){ cpWhite = (stm === 'w') ? -1200 : 1200; mateWhite = (stm === 'w') ? -1 : 1; }
+      evals.push({ fen, bestMove: null, cpWhite, mateWhite, winWhite: winPctWhite(cpWhite, mateWhite), legal: 0 });
       if (onProgress) onProgress(i + 1, positions.length);
       continue;
     }
@@ -7036,12 +7501,21 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
        position can't stall the run — and, unlike the old Promise.race, it
        can't leave a search running that the NEXT position then reads the
        output of. */
-    let r = null;
+    /* Top two lines: the gap between them is what makes a move "great"
+       (the only move that holds) rather than just "best". */
+    let r = null, second = null;
+    const legal = probe.moves().length;
     try{
-      r = await engine.analyse(fen, { depth: DEPTH, timeout: 20000 });
+      const lines = await engine.analyseMulti(fen, {
+        depth: DEPTH, multipv: legal > 1 ? 2 : 1, timeout: strong ? 9000 : 20000
+      });
+      if (lines && lines[0]) r = { bestMove: lines[0].uci, scoreCp: lines[0].cp, mateIn: lines[0].mateIn };
+      if (lines && lines[1]) second = lines[1];
     } catch(e){
       r = null;
     }
+    const sgn = stm === 'w' ? 1 : -1;
+    const toMate = (m) => (m === null || m === undefined) ? null : m * sgn;
 
     const cpStm = r ? clampCp(r.scoreCp, r.mateIn) : null;
     if (cpStm === null){
@@ -7050,17 +7524,38 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
          heuristic can't see tactics, so any loss measured against it is a
          guess and must not be counted as accuracy. */
       const fallback = evaluate(probe); // local heuristic, White's perspective
+      const cpW = Math.max(-1200, Math.min(1200, fallback));
       evals.push({
         fen,
         bestMove: r ? r.bestMove : null,
-        cpWhite: Math.max(-1200, Math.min(1200, fallback)),
+        cpWhite: cpW,
+        mateWhite: null,
+        winWhite: winPctWhite(cpW, null),
+        legal,
         estimated: true
       });
     } else {
+      const mateWhite = toMate(r.mateIn);
+      const cpW = stm === 'w' ? cpStm : -cpStm;
+      let secondWin = null, secondMate = null, secondUci = null;
+      if (second){
+        const sCp = clampCp(second.cp, second.mateIn);
+        if (sCp !== null){
+          secondMate = toMate(second.mateIn);
+          secondWin = winPctWhite(stm === 'w' ? sCp : -sCp, secondMate);
+          secondUci = second.uci;
+        }
+      }
       evals.push({
         fen,
         bestMove: r.bestMove,
-        cpWhite: stm === 'w' ? cpStm : -cpStm
+        cpWhite: cpW,
+        mateWhite,
+        winWhite: winPctWhite(cpW, mateWhite),
+        secondWinWhite: secondWin,
+        secondMateWhite: secondMate,
+        secondUci,
+        legal
       });
     }
     if (onProgress) onProgress(i + 1, positions.length);
@@ -7069,7 +7564,8 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
   // Classify each move by what it cost the player who made it.
   const annotations = [];
   let playerLossTotal = 0, playerMoves = 0;
-  const counts = { best:0, good:0, inaccuracy:0, mistake:0, blunder:0 };
+  const counts = { brilliant:0, great:0, best:0, excellent:0, good:0, book:0, forced:0,
+                   inaccuracy:0, mistake:0, miss:0, blunder:0 };
 
   for (let i = 0; i < moves.length; i++){
     const mover = moves[i].color;
@@ -7079,11 +7575,52 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
     const loss = Math.max(0, (before.cpWhite - after.cpWhite) * sign);
 
     const phase = i < 20 ? 'opening' : (moves.length - i < 20 ? 'endgame' : 'middlegame');
-    const severity = classifyLoss(loss);
     const playedUci = moves[i].from + moves[i].to + (moves[i].promotion || '');
     const isPlayer = mover === playerColorCode;
     // A loss is only meaningful if the engine scored BOTH sides of the move.
     const estimated = !!(before.estimated || after.estimated);
+
+    /* Winning chances from the mover's side, before and after. */
+    const pov = (w) => (w === null || w === undefined) ? null : (mover === 'w' ? w : 100 - w);
+    const winBefore = pov(before.winWhite);
+    const winAfter = pov(after.winWhite);
+    const wpLoss = Math.max(0, winBefore - winAfter);
+    const isBest = !!before.bestMove && playedUci.slice(0, 4) === before.bestMove.slice(0, 4)
+      && (playedUci[4] || 'q') === (before.bestMove[4] || 'q');
+    const mateForMover = before.mateWhite !== null && before.mateWhite !== undefined
+      && (mover === 'w' ? before.mateWhite > 0 : before.mateWhite < 0);
+
+    let severity;
+    if (before.legal === 1){
+      severity = 'forced';
+    } else if (isBest || wpLoss < 0.5){
+      severity = isBest ? 'best' : 'excellent';
+      const secondWin = pov(before.secondWinWhite);
+      const secondIsMate = before.secondMateWhite !== null && before.secondMateWhite !== undefined
+        && (mover === 'w' ? before.secondMateWhite > 0 : before.secondMateWhite < 0);
+      /* A simple recapture is never "great", however forced it is. */
+      const prevMove = moves[i - 1];
+      const recapture = prevMove && prevMove.captured && moves[i].captured && prevMove.to === moves[i].to;
+      if (isBest && secondWin !== null && !recapture){
+        const gap = winBefore - secondWin;
+        const mateNow = after.legal === 0 && after.mateWhite !== null && after.mateWhite !== undefined;
+        if (!mateNow && (gap >= 15 || (mateForMover && !secondIsMate && secondWin < 97))) severity = 'great';
+      }
+      if (isSacrifice(before.fen, moves[i]) && winAfter >= 50 && winBefore < 95) severity = 'brilliant';
+    } else {
+      severity = gradeByWinLoss(wpLoss);
+    }
+
+    /* A "miss": the opponent's last move handed you something and this move
+       lets it go — you're back where you were, not worse. */
+    if (BAD_SEVERITIES.indexOf(severity) !== -1 && i > 0){
+      const prev = annotations[i - 1];
+      const theyErred = prev && !prev.estimated && prev.wpLoss >= 10;
+      const backTo = prev ? 100 - prev.winBefore : null;
+      if ((theyErred && winAfter >= backTo - 3) || (mateForMover && winAfter >= 50)){
+        severity = 'miss';
+      }
+    }
 
     if (isPlayer && !estimated){
       playerLossTotal += loss;
@@ -7107,12 +7644,18 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
       color: mover === 'w' ? 'White' : 'Black',
       isPlayer,
       loss: Math.round(loss),
+      wpLoss: Math.round(wpLoss * 10) / 10,
+      winBefore: Math.round(winBefore * 10) / 10,
+      winAfter: Math.round(winAfter * 10) / 10,
       severity,
       evalAfter: after.cpWhite,
+      mateAfter: after.mateWhite,
       bestMove: before.bestMove,
+      secondMove: before.secondUci || null,
       phase,
       text: explainMove(before.fen, playedUci, before.bestMove, loss, severity, phase,
-                        before.cpWhite * sign, after.cpWhite * sign)
+                        before.cpWhite * sign, after.cpWhite * sign,
+                        { secondUci: before.secondUci, mateForMover, wpLoss })
     });
   }
 
@@ -7122,7 +7665,7 @@ async function runLocalReview(gameId, moves, pgn, playerColorCode, resultText, b
      otherwise decent game to near zero, which is what the old formula did. */
   const perMoveAcc = annotations
     .filter(a => a.isPlayer && !a.estimated)
-    .map(a => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.004354 * a.loss) - 3.1669)));
+    .map(a => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * (a.wpLoss || 0)) - 3.1669)));
   const accuracy = perMoveAcc.length
     ? Math.max(0, Math.min(99.9, perMoveAcc.reduce((s, v) => s + v, 0) / perMoveAcc.length))
     : 0;
@@ -7399,7 +7942,13 @@ function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, ac
     lines.push('ACCURACY — not available. The engine could not score this game, so there is nothing to average. Use "Re-run engine review" above.');
   } else {
     lines.push(`ACCURACY — ${accuracy.toFixed(1)}%. Average loss per move: ${(avgLoss/100).toFixed(2)} pawns.`);
-    lines.push(`Best moves: ${counts.best} · Good: ${counts.good} · Inaccuracies: ${counts.inaccuracy} · Mistakes: ${counts.mistake} · Blunders: ${counts.blunder}`);
+    const cnt = (k) => counts[k] || 0;
+    const highs = [];
+    if (cnt('brilliant')) highs.push(`Brilliant: ${cnt('brilliant')}`);
+    if (cnt('great')) highs.push(`Great: ${cnt('great')}`);
+    lines.push(highs.concat([`Best: ${cnt('best')}`, `Excellent: ${cnt('excellent')}`, `Good: ${cnt('good')}`,
+      `Inaccuracies: ${cnt('inaccuracy')}`, `Mistakes: ${cnt('mistake')}`, `Misses: ${cnt('miss')}`,
+      `Blunders: ${cnt('blunder')}`]).join(' · '));
     if (skipped){
       lines.push(`Note: the engine couldn't score ${unscored} position${unscored === 1 ? '' : 's'}, so ${skipped} of your moves are left out of the figures above and their explanations are rough estimates. Re-running the review usually fixes this.`);
     }
@@ -7412,7 +7961,7 @@ function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, ac
      game you lost by force. */
   const mated = /checkmate/i.test(resultText || '');
   const lostIt = /loss/i.test(outWord);
-  if (mated && lostIt && scoredMoves > 0 && !counts.blunder && !counts.mistake){
+  if (mated && lostIt && scoredMoves > 0 && !counts.blunder && !counts.mistake && !counts.miss){
     lines.push('CHECK THIS — you were checkmated, but no mistake or blunder was flagged among your moves. That combination is not possible in a sound scan, so treat the figures above as unreliable and re-run the review.');
     lines.push('');
   }
@@ -7432,8 +7981,7 @@ function buildLocalSummary({ resultText, botEloVal, playerColorCode, opening, ac
         + (firstOffBook ? `, leaving theory at move ${firstOffBook.moveNumber} with ${firstOffBook.san}.` : '.'));
     }
 
-    const firstError = annotations.find(a => a.isPlayer &&
-      (a.severity === 'inaccuracy' || a.severity === 'mistake' || a.severity === 'blunder'));
+    const firstError = annotations.find(a => a.isPlayer && BAD_SEVERITIES.indexOf(a.severity) !== -1);
     if (firstError){
       lines.push(`Your first inaccurate move was ${firstError.moveNumber}. ${firstError.san} (${firstError.severity}).`);
     } else {
@@ -7552,7 +8100,7 @@ function setReviewMode(mode){
 
 async function savePuzzlesFromAnnotations(gameId, annotations){
   const bad = annotations.filter(a =>
-    a.isPlayer && (a.severity === 'mistake' || a.severity === 'blunder') && a.bestMove);
+    a.isPlayer && (a.severity === 'mistake' || a.severity === 'blunder' || a.severity === 'miss') && a.bestMove);
   // Rebuild positions to get the FEN before each flagged move.
   const positions = [];
   const t = new Chess();
@@ -7626,7 +8174,7 @@ async function rerunReview(rec){
       counts: review.counts,
       openingName: review.opening ? review.opening.name : null,
       moments: review.annotations
-        .filter(a => ['inaccuracy','mistake','blunder'].includes(a.severity))
+        .filter(a => BAD_SEVERITIES.indexOf(a.severity) !== -1)
         .map(a => ({ moveNumber:a.moveNumber, san:a.san, color:a.color, colorCode:a.colorCode,
                      magnitude:a.loss, severity:a.severity }))
     });
